@@ -24,8 +24,8 @@ except:
     print("\n⚠️  No GPU detected")
 
 # Load model
-print("\n🤖 Loading Qwen2-VL-7B GGUF model...")
-model_path = Path.home() / ".cache/huggingface/hub/models--bartowski--Qwen2-VL-7B-Instruct-GGUF/snapshots/3088669af444bb2b86da6272694edd905f9c5a5b/Qwen2-VL-7B-Instruct-Q4_K_M.gguf"
+print("\n🤖 Loading Qwen2.5-VL-7B GGUF model...")
+model_path = Path.home() / ".cache/huggingface/hub/models--unsloth--Qwen2.5-VL-7B-Instruct-GGUF/snapshots/68bb8bc4b7df5289c143aaec0ab477a7d4051aab/Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf"
 
 start = time.time()
 llm = Llama(
@@ -38,8 +38,13 @@ load_time = time.time() - start
 print(f"\n✓ Model loaded in {load_time:.1f}s")
 
 # Extract a test frame
-print("\n📹 Extracting test frame from IMG_3520.MOV...")
-video_path = Path("/home/mazsola/video/IMG_3520.MOV")
+print("\n📹 Extracting test frame from first available MOV...")
+import glob
+video_files = sorted(glob.glob("/home/mazsola/ai-video-editor/giulia-part-5/*.MOV"))
+if not video_files:
+    print("❌ No MOV files found in giulia-part-5/")
+    exit(1)
+video_path = Path(video_files[0])
 if not video_path.exists():
     print(f"❌ Video not found: {video_path}")
     exit(1)

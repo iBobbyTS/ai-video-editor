@@ -6,11 +6,13 @@ echo "Building GCC 12 from source for CUDA compatibility"
 echo "This will take 30-60 minutes depending on your CPU"
 echo "============================================================"
 
-# Install build dependencies
+# Install build dependencies (matching README_GPU_COMPILATION.md prerequisites)
 echo ""
 echo "Installing build dependencies..."
-sudo dnf install -y gcc gcc-c++ make wget bzip2 \
-    gmp-devel mpfr-devel libmpc-devel
+sudo dnf install -y wget tar bzip2 gcc gcc-c++ make \
+    libmpc-devel mpfr-devel gmp-devel isl-devel \
+    zlib-devel flex bison texinfo \
+    ninja-build cmake git python3-devel
 
 # Create build directory
 BUILD_DIR="/tmp/gcc-12-build"
@@ -33,7 +35,9 @@ cd gcc-12.3.0
 # Configure for minimal build (C/C++ only, faster)
 echo ""
 echo "Configuring GCC (C/C++ only for faster build)..."
-mkdir -p build
+# Clean any previous build to avoid corrupted artifacts from failed runs
+rm -rf build
+mkdir build
 cd build
 
 ../configure \
@@ -43,7 +47,7 @@ cd build
     --disable-bootstrap \
     --disable-libsanitizer
 
-# Build (use all CPU cores)
+# Build using all CPU cores
 echo ""
 echo "Building GCC 12.3.0 (this takes 30-60 minutes)..."
 echo "Using $(nproc) CPU cores"

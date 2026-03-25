@@ -1,6 +1,6 @@
 {
   "paths": {
-    "video_dir": "./assets/videos",
+    "video_dir": "/mnt/SSHD1TB/bmw-part-4",
     "input_dir": "./",
     "output_dir": "./",
     "clips_dir": "./ai_clips",
@@ -14,7 +14,7 @@
     "max_speed_multiplier": 8.0,
     "captioning": {
       "enabled": true,
-      "model": "Qwen/Qwen2.5-VL-3B-Instruct",
+      "model": "Qwen/Qwen2.5-VL-7B-Instruct",
       "max_length": 40,
       "min_length": 10,
       "num_beams": 4,
@@ -139,7 +139,7 @@
   "youtube": {
     "channel_url": "https://www.youtube.com/@modernhackers",
     "default_title": "Scale Model Car Build",
-    "upload_title": "Build Alpha Model Giulia GTAm - Candy Red - Finished (Part5)",
+    "upload_title": "Build BMW - ESTORIL BLUE Exeriors - (Part4)",
     "altered_content": false,
     "default_description": "Building scale model cars with detailed painting and finishing techniques.\n\nYou can follow ModernHackers social media @ https://linktr.ee/modernhackers\n\n#scalemodel #carmodel #carmodeling #modernhackers #alfaromeo #alphamodel #tamiya #revell #hasegawa #fujimi #airbrush #painting #detailing",
     "default_tags": [

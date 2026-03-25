@@ -1,16 +1,27 @@
+# setuptools pinned - pkg_resources removed in >=72, needed by clip-anytorch
+setuptools<72
+
 # Core ML/vision
 numpy
 opencv-python
 pillow
 scikit-learn
 
+# PyTorch with CUDA 12 (compatible with NVIDIA driver CUDA 13.x runtime)
+--extra-index-url https://download.pytorch.org/whl/cu124
 torch
 torchvision
 torchaudio
+
+# Transformers / AI models
 transformers
 accelerate
+bitsandbytes
+huggingface_hub
+qwen-vl-utils
 clip-anytorch
 llama-cpp-python
+tqdm
 
 # YouTube upload
 google-api-python-client

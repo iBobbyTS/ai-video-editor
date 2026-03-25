@@ -19,7 +19,7 @@ echo ""
 echo "Using GCC 12:"
 "$GCC12" --version | head -1
 
-cd /home/mazsola/video
+cd /home/mazsola/ai-video-editor
 source .venv/bin/activate
 
 echo ""
@@ -46,4 +46,4 @@ echo "✅ Build complete!"
 echo "============================================================"
 echo ""
 echo "Testing GPU support..."
-python test_cuda_backend.py
+python tools/test_video_gpu.py
