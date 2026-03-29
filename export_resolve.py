@@ -12,6 +12,7 @@ import shutil
 import random
 import functools
 from pathlib import Path
+from urllib.parse import quote
 from xml.etree.ElementTree import Element, SubElement, ElementTree
 from fractions import Fraction
 
@@ -112,7 +113,7 @@ def get_audio_info(audio_path):
     try:
         result = subprocess.run([
             'ffprobe', '-v', 'error', '-select_streams', 'a:0',
-            '-show_entries', 'stream=duration,channels',
+            '-show_entries', 'stream=duration,duration_ts,sample_rate,channels,bits_per_raw_sample,codec_name',
             '-show_entries', 'format=duration',
             '-of', 'json', audio_path
         ], capture_output=True, text=True, check=True, timeout=2)
@@ -120,22 +121,112 @@ def get_audio_info(audio_path):
         streams = data.get('streams') or []
         channels = None
         duration = None
+        duration_ts = None
+        sample_rate = None
+        bits = None
+        codec = None
         if streams:
             stream = streams[0]
             channels = stream.get('channels')
             duration = stream.get('duration')
+            duration_ts = stream.get('duration_ts')
+            sample_rate = stream.get('sample_rate')
+            bits = stream.get('bits_per_raw_sample')
+            codec = stream.get('codec_name')
         if duration is None:
             duration = (data.get('format') or {}).get('duration')
-        duration_sec = float(duration) if duration is not None else None
-        if duration_sec and duration_sec > 0:
-            duration_frac = Fraction(duration_sec).limit_denominator(10000)
-        else:
-            duration_frac = None
+        # Use sample-exact fraction (duration_ts / sample_rate) when available
+        # to avoid rounding errors that can cause DaVinci Resolve audio issues
+        duration_frac = None
+        if duration_ts is not None and sample_rate is not None:
+            try:
+                duration_frac = Fraction(int(duration_ts), int(sample_rate))
+            except (ValueError, ZeroDivisionError):
+                pass
+        if duration_frac is None:
+            duration_sec = float(duration) if duration is not None else None
+            if duration_sec and duration_sec > 0:
+                duration_frac = Fraction(duration_sec).limit_denominator(100000)
         if channels is None:
             channels = 2
-        return duration_frac, int(channels)
+        bit_depth = int(bits) if bits else None
+        if bit_depth is None and codec:
+            if '16' in codec:
+                bit_depth = 16
+            elif '24' in codec:
+                bit_depth = 24
+            elif '32' in codec:
+                bit_depth = 32
+        return duration_frac, int(channels), bit_depth
     except Exception:
-        return None, 2
+        return None, 2, None
+
+
+def normalize_audio_folder(music_dir):
+    """Pre-check WAV files in a music folder and convert non-24-bit files in-place."""
+    music_dir = Path(music_dir)
+    if not music_dir.exists() or not music_dir.is_dir():
+        return
+    wav_files = sorted(music_dir.glob('*.wav'))
+    if not wav_files:
+        return
+    converted = 0
+    for wav_path in wav_files:
+        _, _, bit_depth = get_audio_info(str(wav_path))
+        if bit_depth is not None and bit_depth != 24:
+            print(f"  🔧 Converting {wav_path.name} from {bit_depth}-bit to 24-bit...")
+            tmp_path = wav_path.with_suffix('.tmp.wav')
+            try:
+                subprocess.run([
+                    'ffmpeg', '-y', '-i', str(wav_path),
+                    '-acodec', 'pcm_s24le', '-ar', '44100',
+                    str(tmp_path)
+                ], capture_output=True, check=True, timeout=120)
+                shutil.move(str(tmp_path), str(wav_path))
+                converted += 1
+                print(f"    ✓ {wav_path.name} converted to 24-bit")
+            except Exception as e:
+                print(f"    ⚠️  Failed to convert {wav_path.name}: {e}")
+                if tmp_path.exists():
+                    tmp_path.unlink()
+    if converted:
+        print(f"  ✅ Normalized {converted} audio file(s) to 24-bit")
+    else:
+        print(f"  ✓ All {len(wav_files)} audio files are 24-bit")
+
+    # Strip BWF time_reference metadata (causes silence offset in DaVinci Resolve)
+    bwf_fixed = 0
+    for wav_path in wav_files:
+        try:
+            result = subprocess.run([
+                'ffprobe', '-v', 'quiet', '-show_entries',
+                'format_tags=time_reference', '-of', 'csv=p=0',
+                str(wav_path)
+            ], capture_output=True, text=True, timeout=10)
+            time_ref = result.stdout.strip()
+            if time_ref and time_ref != '0':
+                print(f"  🔧 Stripping BWF time_reference={time_ref} from {wav_path.name}...")
+                orig_path = wav_path.with_suffix('.wav.ORIG')
+                if not orig_path.exists():
+                    shutil.copy2(str(wav_path), str(orig_path))
+                tmp_path = wav_path.with_suffix('.bwf_tmp.wav')
+                subprocess.run([
+                    'ffmpeg', '-y', '-i', str(wav_path),
+                    '-map_metadata', '-1', '-fflags', '+bitexact',
+                    '-c:a', 'copy', str(tmp_path)
+                ], capture_output=True, check=True, timeout=120)
+                shutil.move(str(tmp_path), str(wav_path))
+                bwf_fixed += 1
+                print(f"    ✓ {wav_path.name} BWF metadata stripped")
+        except Exception as e:
+            print(f"    ⚠️  Failed to check/fix BWF for {wav_path.name}: {e}")
+            tmp_path = wav_path.with_suffix('.bwf_tmp.wav')
+            if tmp_path.exists():
+                tmp_path.unlink()
+    if bwf_fixed:
+        print(f"  ✅ Fixed {bwf_fixed} audio file(s) with BWF time_reference offset")
+    else:
+        print(f"  ✓ All {len(wav_files)} audio files are BWF-clean")
 
 
 def get_video_rotation_degrees(video_path):
@@ -267,11 +358,12 @@ def dedupe_clip_infos(clip_infos, threshold):
 
 def to_file_uri(path_str, clips_dir=None):
     """
-    Convert path to file URI for FCPXML.
+    Convert path to a properly percent-encoded file URI for FCPXML.
     Uses absolute file:// URIs for all media files so DaVinci can locate them.
     """
     path = Path(path_str).expanduser().resolve()
-    return f"file://{path.as_posix()}"
+    encoded = quote(path.as_posix(), safe='/')
+    return f"file://{encoded}"
 
 
 def find_rendered_clip(rendered_dir, video_stem, scene_num, classification, speed, extensions=None):
@@ -1195,12 +1287,14 @@ def create_fcpxml_timeline(analysis_path, video_dir, output_file, clip_base_dir=
         if music_folder:
             music_dir = Path(music_folder).expanduser().resolve()
             if music_dir.exists() and music_dir.is_dir():
+                print("\n🔍 Pre-checking background music files...")
+                normalize_audio_folder(music_dir)
                 music_files = sorted(music_dir.glob('*.wav'))
                 if not music_files:
                     print(f"⚠️  No WAV files found in music folder: {music_dir}")
                 else:
                     for music_path in music_files:
-                        duration_frac, channels = get_audio_info(str(music_path))
+                        duration_frac, channels, _ = get_audio_info(str(music_path))
                         if not duration_frac:
                             print(f"⚠️  Skipping audio (unknown duration): {music_path}")
                             continue
@@ -1236,12 +1330,14 @@ def create_fcpxml_timeline(analysis_path, video_dir, output_file, clip_base_dir=
         if teaser_music_folder:
             teaser_music_dir = Path(teaser_music_folder).expanduser().resolve()
             if teaser_music_dir.exists() and teaser_music_dir.is_dir():
+                print("\n🔍 Pre-checking teaser music files...")
+                normalize_audio_folder(teaser_music_dir)
                 teaser_music_files = sorted(teaser_music_dir.glob('*.wav'))
                 if not teaser_music_files:
                     print(f"⚠️  No WAV files found in teaser music folder: {teaser_music_dir}")
                 else:
                     for teaser_music_path in teaser_music_files:
-                        duration_frac, channels = get_audio_info(str(teaser_music_path))
+                        duration_frac, channels, _ = get_audio_info(str(teaser_music_path))
                         if not duration_frac:
                             print(f"⚠️  Skipping teaser audio (unknown duration): {teaser_music_path}")
                             continue
