@@ -1,6 +1,6 @@
 {
   "paths": {
-    "video_dir": "/mnt/SSHD1TB/bmw-part-4",
+    "video_dir": "/mnt/SSHD1TB/bmw-part-5",
     "input_dir": "./",
     "output_dir": "./",
     "clips_dir": "./ai_clips",
@@ -107,7 +107,7 @@
       "transparency": 0.3
     },
     "background_music": {
-      "folder": "./assets/music-background",
+      "folder": "/mnt/synology/music/theme/!artlist/pop",
       "audio_lane": 2,
       "random_seed": null,
       "fade_duration": 3.0,
@@ -121,7 +121,7 @@
   },
   "audio": {
     "background_music": {
-      "folder": "./assets/music-background",
+      "folder": "/mnt/synology/music/theme/!artlist/pop",
       "audio_lane": 2,
       "random_seed": null,
       "fade_duration": 3.0,
@@ -139,7 +139,7 @@
   "youtube": {
     "channel_url": "https://www.youtube.com/@modernhackers",
     "default_title": "Scale Model Car Build",
-    "upload_title": "Build BMW - ESTORIL BLUE Exeriors - (Part4)",
+    "upload_title": "Build BMW - G81 - Alpha Model ESTORIL BLUE Completed - (Part5)",
     "altered_content": false,
     "default_description": "Building scale model cars with detailed painting and finishing techniques.\n\nYou can follow ModernHackers social media @ https://linktr.ee/modernhackers\n\n#scalemodel #carmodel #carmodeling #modernhackers #alfaromeo #alphamodel #tamiya #revell #hasegawa #fujimi #airbrush #painting #detailing",
     "default_tags": [

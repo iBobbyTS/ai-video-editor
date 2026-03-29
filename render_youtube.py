@@ -8,9 +8,16 @@ Reads configuration from project_config.json.
 
 import argparse
 import json
+import re
 import sys
 import time
 from pathlib import Path
+
+
+def _title_to_filename(title):
+	"""Convert an upload title to a safe filename (without extension)."""
+	safe = re.sub(r'[^\w\s-]', '', title).strip()
+	return re.sub(r'[\s]+', '_', safe)
 
 
 def _add_resolve_module_path():
@@ -252,6 +259,13 @@ def main():
 	if config_path.exists():
 		with open(config_path, "r") as f:
 			config = json.load(f)
+	
+	# Derive output filename from upload title if --output was not explicitly set
+	if args.output == "timeline_output_4k_youtube.mp4":
+		youtube_cfg = config.get("youtube", {})
+		upload_title = youtube_cfg.get("upload_title") or youtube_cfg.get("default_title", "")
+		if upload_title:
+			args.output = f"{_title_to_filename(upload_title)}.mp4"
 	
 	output_path = Path(args.output).resolve()
 	output_path.parent.mkdir(parents=True, exist_ok=True)

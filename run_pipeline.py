@@ -382,7 +382,15 @@ def main():
 			
 			# Render final output
 			if resolve_cfg.get("render_youtube_4k", False):
-				youtube_output = resolve_cfg.get("youtube_output_path", "timeline_output_4k_youtube.mp4")
+				youtube_cfg = config.get("youtube", {})
+				upload_title = youtube_cfg.get("upload_title") or youtube_cfg.get("default_title", "")
+				if upload_title:
+					import re as _re
+					safe_name = _re.sub(r'[^\w\s-]', '', upload_title).strip()
+					safe_name = _re.sub(r'[\s]+', '_', safe_name)
+					youtube_output = f"{safe_name}.mp4"
+				else:
+					youtube_output = resolve_cfg.get("youtube_output_path", "timeline_output_4k_youtube.mp4")
 				youtube_output_path = base_dir / youtube_output
 				
 				print("\n" + "=" * 72)

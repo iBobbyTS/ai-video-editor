@@ -360,20 +360,21 @@ def load_config(config_path):
 
 
 def find_asset_thumbnail():
-    """Find a thumbnail image from assets/photos (newest by mtime)."""
+    """Find a thumbnail image, checking assets/photo-index/ first, then assets/photos/."""
     base_dir = Path(__file__).resolve().parent
-    assets_dir = base_dir / "assets" / "photos"
-    if not assets_dir.exists():
-        return None
+    for folder in ("photo-index", "photos"):
+        assets_dir = base_dir / "assets" / folder
+        if not assets_dir.exists():
+            continue
 
-    candidates = []
-    for ext in ("*.jpg", "*.jpeg", "*.png", "*.JPG", "*.JPEG", "*.PNG"):
-        candidates.extend(assets_dir.glob(ext))
+        candidates = []
+        for ext in ("*.jpg", "*.jpeg", "*.png", "*.JPG", "*.JPEG", "*.PNG"):
+            candidates.extend(assets_dir.glob(ext))
 
-    if not candidates:
-        return None
+        if candidates:
+            return max(candidates, key=lambda p: p.stat().st_mtime)
 
-    return max(candidates, key=lambda p: p.stat().st_mtime)
+    return None
 
 
 def set_thumbnail(youtube, video_id, thumbnail_path):
