@@ -6,7 +6,8 @@
     "clips_dir": "./ai_clips",
     "timeline": "./timeline_davinci_resolve.fcpxml",
     "photos": "./assets/photos",
-    "teaser_videos": "./assets/teaser-videos"
+    "teaser_videos": "./assets/teaser-videos",
+    "videos_reels": "./assets/videos-reels"
   },
   "analysis": {
     "sample_interval": 2,
@@ -168,6 +169,24 @@
     "category_id": "26",
     "default_privacy": "unlisted",
     "made_for_kids": false,
-    "default_playlist_id": "PL4ML7o5g3fZk0WgDMV1-stbA2lz0bCHFO"
+    "default_playlist_id": "PL4ML7o5g3fZk0WgDMV1-stbA2lz0bCHFO",
+    "shorts_playlist_id": "PL4ML7o5g3fZlh02PpfQkM9A_dbd_yGQOB"
+  },
+  "reels": {
+    "videos_folder": "./assets/videos-reels",
+    "music_folder": "./assets/music-teaser",
+    "max_duration_seconds": 59,
+    "timeline_width": 1080,
+    "timeline_height": 1920,
+    "timeline_file": "./timeline_reels.fcpxml",
+    "render_settings": {
+      "format": "mp4",
+      "codec": "H265_NVIDIA",
+      "video_quality": 15000,
+      "encoding_profile": "Main",
+      "preset_name": "medium",
+      "output_dir": "/home/mazsola/Videos"
+    },
+    "related_video_id": "MSwu0ns6rd0"
   }
 }

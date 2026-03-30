@@ -191,6 +191,7 @@ def main():
 	parser.add_argument("--skip-extract", action="store_true", help="Skip clip extraction stage")
 	parser.add_argument("--skip-export", action="store_true", help="Skip timeline export stage")
 	parser.add_argument("--force-analysis", action="store_true", help="Re-run analysis even if JSON exists")
+	parser.add_argument("--reels-only", action="store_true", help="Skip main pipeline, run only Reels/Shorts stages")
 	args = parser.parse_args()
 
 	base_dir = Path(__file__).resolve().parent
@@ -225,6 +226,11 @@ def main():
 	skip_analysis = args.skip_analysis or pipeline_cfg.get("skip_analysis", False)
 	skip_extract = args.skip_extract or pipeline_cfg.get("skip_extract", False)
 	skip_export = args.skip_export or pipeline_cfg.get("skip_export", False)
+	reels_only = args.reels_only
+	if reels_only:
+		skip_analysis = True
+		skip_extract = True
+		skip_export = True
 
 	print("\n=== AI Video Pipeline ===")
 	print(f"Input dir:   {input_dir}")
@@ -340,7 +346,7 @@ def main():
 			print("\n▶ [3/3] Export Resolve timeline (skipped)")
 
 		resolve_cfg = config.get("resolve", {})
-		if resolve_cfg.get("auto_start"):
+		if resolve_cfg.get("auto_start") and not reels_only:
 			print("\n▶ [4/5] Launch/attach DaVinci Resolve")
 			resolve = _connect_resolve(retries=3, delay_seconds=1)
 			process = None
@@ -456,6 +462,267 @@ def main():
 					print(f"\n⚠️  Render script timeout")
 					print("   The render may still be processing in Resolve.")
 					print("   Check Resolve's Deliver page for status.")
+
+				# --- YouTube Upload ---
+				render_output_dir = resolve_cfg.get("render_settings", {}).get("output_dir", "")
+				if render_output_dir:
+					actual_render_path = Path(render_output_dir) / youtube_output
+				else:
+					actual_render_path = youtube_output_path
+
+				if actual_render_path.exists():
+					print("\n" + "=" * 72)
+					print("📤 YOUTUBE UPLOAD")
+					print("=" * 72)
+					print(f"   Video: {actual_render_path}")
+					print(f"   Size:  {actual_render_path.stat().st_size / (1024 * 1024):.1f} MB")
+					print("=" * 72)
+					while True:
+						response = input("\nUpload to YouTube? (y/N): ").strip().lower()
+						if response in ('y', 'yes'):
+							print("✓ Starting YouTube upload...")
+							upload_cmd = [
+								python,
+								str(base_dir / "upload_youtube.py"),
+								"--video",
+								str(actual_render_path),
+								"--config",
+								str(base_dir / "project_config.json"),
+							]
+							print(f"\n▶ [7/5] Upload to YouTube")
+							print("-" * 72)
+							print(" ".join(upload_cmd))
+							print("-" * 72)
+							try:
+								upload_result = subprocess.run(upload_cmd, cwd=base_dir)
+								if upload_result.returncode == 0:
+									print(f"✔ YouTube upload completed successfully")
+								else:
+									print(f"\n⚠️  Upload reported issues (exit code {upload_result.returncode})")
+							except Exception as e:
+								print(f"\n⚠️  Upload error: {e}")
+							break
+						elif response in ('n', 'no', ''):
+							print("✗ Upload skipped")
+							break
+						else:
+							print("Please enter 'y' or 'n'")
+
+		# ─── Reels / Shorts Pipeline ───
+		reels_cfg = config.get("reels", {})
+		reels_videos_folder = reels_cfg.get("videos_folder", "")
+		if reels_videos_folder:
+			reels_dir = Path(reels_videos_folder)
+			if not reels_dir.is_absolute():
+				reels_dir = (base_dir / reels_dir).resolve()
+		else:
+			reels_dir = None
+
+		reels_has_clips = (
+			reels_dir
+			and reels_dir.exists()
+			and any(
+				p.is_file() and p.suffix.lower() in {".mov", ".mp4", ".mkv", ".avi"}
+				for p in reels_dir.iterdir()
+			)
+		)
+
+		if reels_has_clips:
+			print("\n" + "=" * 72)
+			print("📱 REELS / SHORTS PIPELINE")
+			print("=" * 72)
+			print(f"  Clips folder:  {reels_dir}")
+			print(f"  Music folder:  {reels_cfg.get('music_folder', 'N/A')}")
+			print(f"  Max duration:  {reels_cfg.get('max_duration_seconds', 59)}s")
+			print(f"  Resolution:    {reels_cfg.get('timeline_width', 1080)}x{reels_cfg.get('timeline_height', 1920)}")
+			print("=" * 72)
+
+			while True:
+				response = input("\nBuild Reels/Shorts timeline? (y/N): ").strip().lower()
+				if response in ('y', 'yes'):
+					break
+				elif response in ('n', 'no', ''):
+					print("✗ Reels pipeline skipped")
+					reels_has_clips = False
+					break
+				else:
+					print("Please enter 'y' or 'n'")
+
+		if reels_has_clips:
+			# Export reels FCPXML
+			reels_timeline = reels_cfg.get("timeline_file", "./timeline_reels.fcpxml")
+			reels_timeline_path = Path(reels_timeline)
+			if not reels_timeline_path.is_absolute():
+				reels_timeline_path = (base_dir / reels_timeline_path).resolve()
+
+			cmd = [
+				python,
+				str(base_dir / "export_reels.py"),
+				"--config",
+				str(Path(args.config).resolve()),
+				"--output",
+				str(reels_timeline_path),
+			]
+			run_stage("📱 [R1/4] Export Reels timeline (9:16)", cmd, base_dir)
+
+			# Import reels timeline into Resolve
+			if resolve_cfg.get("auto_start"):
+				print("\n▶ 📱 [R2/4] Launch/attach Resolve & Import Reels timeline")
+				resolve = _connect_resolve(retries=3, delay_seconds=1)
+				if not resolve:
+					process = _launch_resolve(
+						resolve_cfg.get("launch_cmd", "/opt/resolve/bin/resolve"),
+						resolve_cfg.get("launch_env", {}),
+					)
+					startup_wait = resolve_cfg.get("startup_wait_seconds", 20)
+					time.sleep(startup_wait)
+					resolve = _connect_resolve(retries=60, delay_seconds=2)
+				if not resolve:
+					raise RuntimeError("Resolve is not available via scripting API.")
+				print("✔ Resolve connected")
+
+				# Create project for reels
+				project_name = resolve_cfg.get("project_name", "AI Pipeline")
+				create_new_project = resolve_cfg.get("create_new_project", True)
+				project = _create_or_load_project(resolve, f"{project_name}_Reels", create_new=create_new_project)
+				if not project:
+					raise RuntimeError("Failed to create or load Resolve project for Reels.")
+				print(f"Reels project ready: {project.GetName()}")
+
+				reels_imported = _import_timeline(
+					resolve, reels_timeline_path,
+					reels_cfg.get("timeline_name", "Reels Timeline (Resolve)"),
+				)
+				print(f"   Import reels timeline: {'ok' if reels_imported else 'failed'}")
+				time.sleep(resolve_cfg.get("import_wait_seconds", 10))
+
+				# Apply LUT to reels timeline
+				if resolve_cfg.get("apply_lut_after_import", True):
+					cmd = [
+						python,
+						str(base_dir / "apply_lut_resolve.py"),
+						"--config",
+						str(Path(args.config).resolve()),
+						"--mode",
+						resolve_cfg.get("apply_lut_mode", "mediapool"),
+						"--property-key",
+						resolve_cfg.get("lut_property_key", "Input LUT"),
+					]
+					run_stage("Apply LUT to Reels", cmd, base_dir)
+
+				# Render reels
+				reels_render_cfg = reels_cfg.get("render_settings", {})
+				youtube_cfg = config.get("youtube", {})
+				upload_title = youtube_cfg.get("upload_title") or youtube_cfg.get("default_title", "")
+				if upload_title:
+					import re as _re
+					safe_name = _re.sub(r'[^\w\s-]', '', upload_title).strip()
+					safe_name = _re.sub(r'[\s]+', '_', safe_name)
+					reels_output_name = f"{safe_name}_shorts.mp4"
+				else:
+					reels_output_name = "reels_output_shorts.mp4"
+
+				reels_render_dir = reels_render_cfg.get("output_dir", "/home/mazsola/Videos")
+
+				print("\n" + "=" * 72)
+				print("📱 REELS RENDER CONFIRMATION")
+				print("=" * 72)
+				print("\n📺 In DaVinci Resolve:")
+				print("   - Review the Reels timeline")
+				print("   - Verify vertical format (1080x1920)")
+				print("   - Check audio levels")
+				print(f"   - Total duration must be < {reels_cfg.get('max_duration_seconds', 59)}s")
+				print(f"\n📤 Output: {Path(reels_render_dir) / reels_output_name}")
+				print("=" * 72)
+
+				while True:
+					response = input("\nProceed with Reels render? (y/N): ").strip().lower()
+					if response in ('y', 'yes'):
+						print("✓ Starting reels render...")
+						break
+					elif response in ('n', 'no', ''):
+						print("✗ Reels render cancelled")
+						reels_has_clips = False
+						break
+					else:
+						print("Please enter 'y' or 'n'")
+
+				if reels_has_clips:
+					cmd = [
+						python,
+						str(base_dir / "render_reels.py"),
+						"--output",
+						reels_output_name,
+						"--config",
+						str(Path(args.config).resolve()),
+					]
+					print(f"\n▶ 📱 [R3/4] Render Reels (1080x1920)")
+					print("-" * 72)
+					print(" ".join(cmd))
+					print("-" * 72)
+
+					try:
+						result = subprocess.run(cmd, cwd=base_dir, timeout=300)
+						if result.returncode == 0:
+							print(f"✔ Reels render completed")
+						else:
+							print(f"\n⚠️  Reels render issues (exit code {result.returncode})")
+					except subprocess.TimeoutExpired:
+						print("\n⚠️  Reels render timeout - check Resolve")
+
+					# YouTube Shorts Upload
+					actual_reels_path = Path(reels_render_dir) / reels_output_name
+					print(f"\n🔍 Checking for rendered file: {actual_reels_path}")
+					if actual_reels_path.exists():
+						related_video_id = reels_cfg.get("related_video_id", "")
+
+						print("\n" + "=" * 72)
+						print("📤 YOUTUBE SHORTS UPLOAD")
+						print("=" * 72)
+						print(f"   Video:    {actual_reels_path}")
+						print(f"   Size:     {actual_reels_path.stat().st_size / (1024 * 1024):.1f} MB")
+						print(f"   Title:    {upload_title} #shorts")
+						if related_video_id:
+							print(f"   Related:  https://www.youtube.com/watch?v={related_video_id}")
+						print("=" * 72)
+
+						while True:
+							response = input("\nUpload Shorts to YouTube? (y/N): ").strip().lower()
+							if response in ('y', 'yes'):
+								print("✓ Starting YouTube Shorts upload...")
+								upload_cmd = [
+									python,
+									str(base_dir / "upload_youtube.py"),
+									"--video",
+									str(actual_reels_path),
+									"--config",
+									str(base_dir / "project_config.json"),
+									"--shorts",
+								]
+								if related_video_id:
+									upload_cmd.extend(["--related-video", related_video_id])
+
+								print(f"\n▶ 📱 [R4/4] Upload Shorts to YouTube")
+								print("-" * 72)
+								print(" ".join(upload_cmd))
+								print("-" * 72)
+								try:
+									upload_result = subprocess.run(upload_cmd, cwd=base_dir)
+									if upload_result.returncode == 0:
+										print(f"✔ YouTube Shorts upload completed")
+									else:
+										print(f"\n⚠️  Upload issues (exit code {upload_result.returncode})")
+								except Exception as e:
+									print(f"\n⚠️  Upload error: {e}")
+								break
+							elif response in ('n', 'no', ''):
+								print("✗ Shorts upload skipped")
+								break
+							else:
+								print("Please enter 'y' or 'n'")
+					else:
+						print(f"\n⚠️  Rendered file not found: {actual_reels_path}")
+						print("   Upload skipped — check Resolve render output directory")
 
 		print("\n✅ Pipeline complete")
 		print("Import all clips to Resolve Media Pool before importing the XML.")

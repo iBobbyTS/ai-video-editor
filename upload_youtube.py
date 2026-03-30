@@ -241,6 +241,7 @@ def initialize_upload(youtube, video_file, metadata):
         "status": {
             "privacyStatus": metadata.get("privacy_status", "private"),
             "selfDeclaredMadeForKids": metadata.get("made_for_kids", False),
+            "containsSyntheticMedia": metadata.get("altered_content", False),
         }
     }
     
@@ -496,6 +497,16 @@ def main():
         type=str,
         help="Set thumbnail for an existing video ID (no upload)"
     )
+    parser.add_argument(
+        "--shorts",
+        action="store_true",
+        help="Append #shorts to the video title for YouTube Shorts"
+    )
+    parser.add_argument(
+        "--related-video",
+        type=str,
+        help="Related video ID to reference in the description (for teasers)"
+    )
     
     args = parser.parse_args()
     
@@ -538,14 +549,28 @@ def main():
         sys.exit(1)
     
     # Prepare metadata
+    title = args.title or youtube_cfg.get("upload_title") or youtube_cfg.get("default_title") or video_path.stem
+    if args.shorts and "#shorts" not in title.lower():
+        title = f"{title} #shorts"
+
+    description = args.description or youtube_cfg.get("default_description", "")
+
+    # Use shorts playlist when uploading Shorts, otherwise default playlist
+    if args.playlist:
+        playlist_id = args.playlist
+    elif args.shorts and youtube_cfg.get("shorts_playlist_id"):
+        playlist_id = youtube_cfg["shorts_playlist_id"]
+    else:
+        playlist_id = youtube_cfg.get("default_playlist_id")
+
     metadata = {
-        "title": args.title or youtube_cfg.get("upload_title") or youtube_cfg.get("default_title") or video_path.stem,
-        "description": args.description or youtube_cfg.get("default_description", ""),
+        "title": title,
+        "description": description,
         "tags": (args.tags.split(",") if args.tags else youtube_cfg.get("default_tags", [])),
         "category_id": args.category or youtube_cfg.get("category_id", "22"),
         "privacy_status": args.privacy or youtube_cfg.get("default_privacy", "private"),
         "made_for_kids": youtube_cfg.get("made_for_kids", False),
-        "playlist_id": args.playlist or youtube_cfg.get("default_playlist_id"),
+        "playlist_id": playlist_id,
         "altered_content": youtube_cfg.get("altered_content", False),
     }
     
@@ -586,16 +611,20 @@ def main():
             if thumbnail_path:
                 set_thumbnail(youtube, video_id, thumbnail_path)
             
+            studio_url = f"https://studio.youtube.com/video/{video_id}/edit"
+
             print("\n" + "=" * 72)
             print("✅ Upload Complete")
             print("=" * 72)
             print(f"Video ID:    {video_id}")
             print(f"Watch URL:   https://www.youtube.com/watch?v={video_id}")
-            print(f"Studio URL:  https://studio.youtube.com/video/{video_id}/edit")
+            print(f"Studio URL:  {studio_url}")
             print("=" * 72)
 
-            if metadata.get("altered_content") is not None:
-                print("\nNote: 'Altered content' cannot be set via API. Set it in YouTube Studio if needed.")
+            if args.related_video:
+                print(f"\n⚠️  Set 'Related video' manually in YouTube Studio (not available via API):")
+                print(f"   Related video: https://www.youtube.com/watch?v={args.related_video}")
+                print(f"   Studio URL:    {studio_url}")
         else:
             print("\n❌ Upload failed")
             sys.exit(1)
