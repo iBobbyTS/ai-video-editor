@@ -1,13 +1,15 @@
 {
+  "mode": "build",
   "paths": {
-    "video_dir": "/mnt/SSHD1TB/bmw-part-5",
+    "video_dir": "/mnt/synology/dokumentumok/!iphone/Alpha Model Aston Martin - Unboxing",
     "input_dir": "./",
     "output_dir": "./",
     "clips_dir": "./ai_clips",
     "timeline": "./timeline_davinci_resolve.fcpxml",
-    "photos": "./assets/photos",
-    "teaser_videos": "./assets/teaser-videos",
-    "videos_reels": "./assets/videos-reels"
+    "photos": "/mnt/synology/dokumentumok/!iphone/Alpha Model Aston Martin - Unboxing/photos",
+    "teaser_videos": "/mnt/synology/dokumentumok/!iphone/Alpha Model Aston Martin - Unboxing/teaser-video",
+    "videos_reels": "/mnt/synology/dokumentumok/!iphone/Alpha Model Aston Martin - Unboxing/reels",
+    "thumbnail_dir": "/mnt/synology/dokumentumok/!iphone/Alpha Model Aston Martin - Unboxing/index-photo"
   },
   "analysis": {
     "sample_interval": 2,
@@ -35,6 +37,16 @@
     "skip_analysis": false,
     "skip_extract": false,
     "skip_export": false
+  },
+  "unboxing": {
+    "keep_audio": true,
+    "keep_speed": true,
+    "silence_threshold_db": -35,
+    "silence_min_duration": 3.0,
+    "motion_threshold": 0.02,
+    "boring_requires_both": true,
+    "clip_volume_db": 13,
+    "music_volume_db": -32
   },
   "export": {
     "clip_format": "mov",
@@ -75,7 +87,7 @@
     "intro_clip": "./assets/Start-Intro-V3.mkv",
     "outro_clip": "./assets/Finish-Intro-V3.mkv",
     "exclude_boring": true,
-    "include_classifications": ["interesting", "moderate"],
+    "include_classifications": ["interesting", "moderate", "low"],
     "max_duration_minutes": 45,
     "smart_select": true,
     "smart_select_weights": {
@@ -139,8 +151,8 @@
   },
   "youtube": {
     "channel_url": "https://www.youtube.com/@modernhackers",
-    "default_title": "Scale Model Car Build",
-    "upload_title": "Build BMW - G81 - Alpha Model ESTORIL BLUE Completed - (Part5)",
+    "default_title": "Scale Model Car Build / Unbxing videos",
+    "upload_title": "Alpha Model Aston Martin One-77 Unboxing video",
     "altered_content": false,
     "default_description": "Building scale model cars with detailed painting and finishing techniques.\n\nYou can follow ModernHackers social media @ https://linktr.ee/modernhackers\n\n#scalemodel #carmodel #carmodeling #modernhackers #alfaromeo #alphamodel #tamiya #revell #hasegawa #fujimi #airbrush #painting #detailing",
     "default_tags": [
@@ -173,7 +185,6 @@
     "shorts_playlist_id": "PL4ML7o5g3fZlh02PpfQkM9A_dbd_yGQOB"
   },
   "reels": {
-    "videos_folder": "./assets/videos-reels",
     "music_folder": "./assets/music-teaser",
     "max_duration_seconds": 59,
     "timeline_width": 1080,
@@ -187,6 +198,6 @@
       "preset_name": "medium",
       "output_dir": "/home/mazsola/Videos"
     },
-    "related_video_id": "MSwu0ns6rd0"
+    "related_video_id": "nv7GerIgQGc"
   }
 }

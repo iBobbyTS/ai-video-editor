@@ -45,6 +45,20 @@ def analysis_exists(video_path, output_dir):
 	return any(output_dir.glob(pattern))
 
 
+def analysis_mode_matches(video_path, output_dir, mode):
+	"""Check if the existing analysis JSON was created with the same mode."""
+	primary = analysis_output_path(video_path, output_dir)
+	if not primary.exists():
+		return True  # no JSON → nothing to mismatch
+	try:
+		with open(primary) as f:
+			data = json.load(f)
+		existing_mode = data.get('mode', 'build')
+		return existing_mode == mode
+	except (json.JSONDecodeError, OSError):
+		return True
+
+
 def expected_clip_exists(clips_dir, video_stem, scene_num, classification):
 	pattern = f"{video_stem}_scene_{scene_num:02d}_{classification}_*x.mkv"
 	return any((clips_dir / video_stem).glob(pattern))
@@ -192,6 +206,8 @@ def main():
 	parser.add_argument("--skip-export", action="store_true", help="Skip timeline export stage")
 	parser.add_argument("--force-analysis", action="store_true", help="Re-run analysis even if JSON exists")
 	parser.add_argument("--reels-only", action="store_true", help="Skip main pipeline, run only Reels/Shorts stages")
+	parser.add_argument("--yes", "-y", action="store_true", help="Auto-confirm all interactive prompts (render, upload, etc.)")
+	parser.add_argument("--mode", default=None, choices=['build', 'unboxing', 'reels'], help="Pipeline mode: build (default), unboxing (keep audio/speed), reels")
 	args = parser.parse_args()
 
 	base_dir = Path(__file__).resolve().parent
@@ -227,12 +243,15 @@ def main():
 	skip_extract = args.skip_extract or pipeline_cfg.get("skip_extract", False)
 	skip_export = args.skip_export or pipeline_cfg.get("skip_export", False)
 	reels_only = args.reels_only
+	auto_yes = args.yes
+	mode = args.mode or config.get('mode', 'build')
 	if reels_only:
 		skip_analysis = True
 		skip_extract = True
 		skip_export = True
 
 	print("\n=== AI Video Pipeline ===")
+	print(f"Mode:        {mode}")
 	print(f"Input dir:   {input_dir}")
 	print(f"Output dir:  {output_dir}")
 	print(f"Clips dir:   {clips_dir}")
@@ -240,6 +259,9 @@ def main():
 	print(f"Sample step: {sample_interval}s")
 	print(f"Dedupe:      {dedupe} (threshold {hash_threshold})")
 	print(f"Rendered:    {use_rendered}")
+	if mode == 'unboxing':
+		print(f"Audio:       KEEP (unboxing mode - narration preserved)")
+		print(f"Speed:       1.0x (no speedup)")
 
 	try:
 		if not skip_analysis:
@@ -265,6 +287,9 @@ def main():
 						continue
 					if not analysis_exists(vid, output_dir):
 						videos_to_analyze.append(vid)
+					elif not analysis_mode_matches(vid, output_dir, mode):
+						print(f"   🔄 Re-analyzing {vid.name} (mode changed → {mode})")
+						videos_to_analyze.append(vid)
 
 			if not videos_to_analyze:
 				print("\n▶ [1/3] Analyze videos (skipped - JSON exists)")
@@ -284,10 +309,12 @@ def main():
 					"--skip-duplicate-captions",
 					"--max-scene-length",
 					"40",
+					"--mode",
+					mode,
 				]
 				if video_path:
 					cmd.extend(["--video", str(video_path)])
-				run_stage("[1/3] Analyze videos with Qwen2.5-VL-7B", cmd, base_dir)
+				run_stage(f"[1/3] Analyze videos with Qwen2.5-VL-7B ({mode} mode)", cmd, base_dir)
 				# Mark any still-missing analyses to avoid repeated attempts
 				still_missing = [v for v in videos_to_analyze if not analysis_exists(v, output_dir)]
 				for v in still_missing:
@@ -314,6 +341,8 @@ def main():
 				str(output_dir),
 				"--output-dir",
 				str(clips_dir),
+				"--mode",
+				mode,
 			]
 			if video_dir != input_dir:
 				cmd.extend(["--video-dir", str(video_dir)])
@@ -335,6 +364,8 @@ def main():
 				str(clips_dir),
 				"--output",
 				str(timeline_path),
+				"--mode",
+				mode,
 			]
 			if use_rendered:
 				cmd.append("--use-rendered")
@@ -420,19 +451,22 @@ def main():
 				print("\n" + "=" * 72)
 				
 				# Prompt user to validate
-				print("\n⏸️  Waiting for validation...")
-				while True:
-					response = input("Proceed with YouTube 4K render? (y/N): ").strip().lower()
-					if response in ('y', 'yes'):
-						print("✓ Starting render...")
-						break
-					elif response in ('n', 'no', ''):
-						print("✗ Render cancelled")
-						print("\nTimeline ready in Resolve for manual export if needed.")
-						print(f"When ready, run: python3 render_youtube.py --output {youtube_output_path}")
-						return
-					else:
-						print("Please enter 'y' or 'n'")
+				if auto_yes:
+					print("\n✓ Auto-confirmed (--yes): Starting render...")
+				else:
+					print("\n⏸️  Waiting for validation...")
+					while True:
+						response = input("Proceed with YouTube 4K render? (y/N): ").strip().lower()
+						if response in ('y', 'yes'):
+							print("✓ Starting render...")
+							break
+						elif response in ('n', 'no', ''):
+							print("✗ Render cancelled")
+							print("\nTimeline ready in Resolve for manual export if needed.")
+							print(f"When ready, run: python3 render_youtube.py --output {youtube_output_path}")
+							return
+						else:
+							print("Please enter 'y' or 'n'")
 				
 				print("\n")
 				cmd = [
@@ -477,40 +511,44 @@ def main():
 					print(f"   Video: {actual_render_path}")
 					print(f"   Size:  {actual_render_path.stat().st_size / (1024 * 1024):.1f} MB")
 					print("=" * 72)
-					while True:
-						response = input("\nUpload to YouTube? (y/N): ").strip().lower()
-						if response in ('y', 'yes'):
-							print("✓ Starting YouTube upload...")
-							upload_cmd = [
-								python,
-								str(base_dir / "upload_youtube.py"),
-								"--video",
-								str(actual_render_path),
-								"--config",
-								str(base_dir / "project_config.json"),
-							]
-							print(f"\n▶ [7/5] Upload to YouTube")
-							print("-" * 72)
-							print(" ".join(upload_cmd))
-							print("-" * 72)
-							try:
-								upload_result = subprocess.run(upload_cmd, cwd=base_dir)
-								if upload_result.returncode == 0:
-									print(f"✔ YouTube upload completed successfully")
-								else:
-									print(f"\n⚠️  Upload reported issues (exit code {upload_result.returncode})")
-							except Exception as e:
-								print(f"\n⚠️  Upload error: {e}")
-							break
-						elif response in ('n', 'no', ''):
-							print("✗ Upload skipped")
-							break
-						else:
+					if auto_yes:
+						response = 'y'
+						print("\n✓ Auto-confirmed (--yes): Starting YouTube upload...")
+					else:
+						response = ''
+						while True:
+							response = input("\nUpload to YouTube? (y/N): ").strip().lower()
+							if response in ('y', 'yes', 'n', 'no', ''):
+								break
 							print("Please enter 'y' or 'n'")
+					if response in ('y', 'yes'):
+						print("✓ Starting YouTube upload...")
+						upload_cmd = [
+							python,
+							str(base_dir / "upload_youtube.py"),
+							"--video",
+							str(actual_render_path),
+							"--config",
+							str(base_dir / "project_config.json"),
+						]
+						print(f"\n▶ [7/5] Upload to YouTube")
+						print("-" * 72)
+						print(" ".join(upload_cmd))
+						print("-" * 72)
+						try:
+							upload_result = subprocess.run(upload_cmd, cwd=base_dir)
+							if upload_result.returncode == 0:
+								print(f"✔ YouTube upload completed successfully")
+							else:
+								print(f"\n⚠️  Upload reported issues (exit code {upload_result.returncode})")
+						except Exception as e:
+							print(f"\n⚠️  Upload error: {e}")
+					else:
+						print("✗ Upload skipped")
 
 		# ─── Reels / Shorts Pipeline ───
 		reels_cfg = config.get("reels", {})
-		reels_videos_folder = reels_cfg.get("videos_folder", "")
+		reels_videos_folder = config.get("paths", {}).get("videos_reels", "")
 		if reels_videos_folder:
 			reels_dir = Path(reels_videos_folder)
 			if not reels_dir.is_absolute():
@@ -537,16 +575,19 @@ def main():
 			print(f"  Resolution:    {reels_cfg.get('timeline_width', 1080)}x{reels_cfg.get('timeline_height', 1920)}")
 			print("=" * 72)
 
-			while True:
-				response = input("\nBuild Reels/Shorts timeline? (y/N): ").strip().lower()
-				if response in ('y', 'yes'):
-					break
-				elif response in ('n', 'no', ''):
-					print("✗ Reels pipeline skipped")
-					reels_has_clips = False
-					break
-				else:
-					print("Please enter 'y' or 'n'")
+			if auto_yes:
+				print("\n✓ Auto-confirmed (--yes): Building Reels/Shorts timeline...")
+			else:
+				while True:
+					response = input("\nBuild Reels/Shorts timeline? (y/N): ").strip().lower()
+					if response in ('y', 'yes'):
+						break
+					elif response in ('n', 'no', ''):
+						print("✗ Reels pipeline skipped")
+						reels_has_clips = False
+						break
+					else:
+						print("Please enter 'y' or 'n'")
 
 		if reels_has_clips:
 			# Export reels FCPXML
@@ -635,17 +676,20 @@ def main():
 				print(f"\n📤 Output: {Path(reels_render_dir) / reels_output_name}")
 				print("=" * 72)
 
-				while True:
-					response = input("\nProceed with Reels render? (y/N): ").strip().lower()
-					if response in ('y', 'yes'):
-						print("✓ Starting reels render...")
-						break
-					elif response in ('n', 'no', ''):
-						print("✗ Reels render cancelled")
-						reels_has_clips = False
-						break
-					else:
-						print("Please enter 'y' or 'n'")
+				if auto_yes:
+					print("\n✓ Auto-confirmed (--yes): Starting reels render...")
+				else:
+					while True:
+						response = input("\nProceed with Reels render? (y/N): ").strip().lower()
+						if response in ('y', 'yes'):
+							print("✓ Starting reels render...")
+							break
+						elif response in ('n', 'no', ''):
+							print("✗ Reels render cancelled")
+							reels_has_clips = False
+							break
+						else:
+							print("Please enter 'y' or 'n'")
 
 				if reels_has_clips:
 					cmd = [
@@ -686,40 +730,44 @@ def main():
 							print(f"   Related:  https://www.youtube.com/watch?v={related_video_id}")
 						print("=" * 72)
 
-						while True:
-							response = input("\nUpload Shorts to YouTube? (y/N): ").strip().lower()
-							if response in ('y', 'yes'):
-								print("✓ Starting YouTube Shorts upload...")
-								upload_cmd = [
-									python,
-									str(base_dir / "upload_youtube.py"),
-									"--video",
-									str(actual_reels_path),
-									"--config",
-									str(base_dir / "project_config.json"),
-									"--shorts",
-								]
-								if related_video_id:
-									upload_cmd.extend(["--related-video", related_video_id])
-
-								print(f"\n▶ 📱 [R4/4] Upload Shorts to YouTube")
-								print("-" * 72)
-								print(" ".join(upload_cmd))
-								print("-" * 72)
-								try:
-									upload_result = subprocess.run(upload_cmd, cwd=base_dir)
-									if upload_result.returncode == 0:
-										print(f"✔ YouTube Shorts upload completed")
-									else:
-										print(f"\n⚠️  Upload issues (exit code {upload_result.returncode})")
-								except Exception as e:
-									print(f"\n⚠️  Upload error: {e}")
-								break
-							elif response in ('n', 'no', ''):
-								print("✗ Shorts upload skipped")
-								break
-							else:
+						if auto_yes:
+							response = 'y'
+							print("\n✓ Auto-confirmed (--yes): Starting YouTube Shorts upload...")
+						else:
+							response = ''
+							while True:
+								response = input("\nUpload Shorts to YouTube? (y/N): ").strip().lower()
+								if response in ('y', 'yes', 'n', 'no', ''):
+									break
 								print("Please enter 'y' or 'n'")
+						if response in ('y', 'yes'):
+							print("✓ Starting YouTube Shorts upload...")
+							upload_cmd = [
+								python,
+								str(base_dir / "upload_youtube.py"),
+								"--video",
+								str(actual_reels_path),
+								"--config",
+								str(base_dir / "project_config.json"),
+								"--shorts",
+							]
+							if related_video_id:
+								upload_cmd.extend(["--related-video", related_video_id])
+
+							print(f"\n▶ 📱 [R4/4] Upload Shorts to YouTube")
+							print("-" * 72)
+							print(" ".join(upload_cmd))
+							print("-" * 72)
+							try:
+								upload_result = subprocess.run(upload_cmd, cwd=base_dir)
+								if upload_result.returncode == 0:
+									print(f"✔ YouTube Shorts upload completed")
+								else:
+									print(f"\n⚠️  Upload issues (exit code {upload_result.returncode})")
+							except Exception as e:
+								print(f"\n⚠️  Upload error: {e}")
+						else:
+							print("✗ Shorts upload skipped")
 					else:
 						print(f"\n⚠️  Rendered file not found: {actual_reels_path}")
 						print("   Upload skipped — check Resolve render output directory")

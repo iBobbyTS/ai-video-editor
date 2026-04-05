@@ -200,12 +200,12 @@ def render_timeline_youtube(output_path, timeline_index=1, config=None):
 						print("\n✅ Render completed!")
 						time.sleep(0.5)
 						
-						if Path(output_path).exists():
-							size_mb = Path(output_path).stat().st_size / (1024 * 1024)
+						if Path(output_path_str).exists():
+							size_mb = Path(output_path_str).stat().st_size / (1024 * 1024)
 							print(f"Output file: {size_mb:.1f} MB\n")
 							return True
 						else:
-							print("WARNING: Output file not found")
+							print(f"WARNING: Output file not found at {output_path_str}")
 							return False
 					
 					elif job_status == "Error":
@@ -270,13 +270,60 @@ def main():
 	output_path = Path(args.output).resolve()
 	output_path.parent.mkdir(parents=True, exist_ok=True)
 	
+	# Determine actual render path (respects output_dir from config)
+	resolve_cfg = config.get("resolve", {})
+	render_output_dir = resolve_cfg.get("render_settings", {}).get("output_dir", "")
+	if render_output_dir:
+		actual_render_path = Path(render_output_dir) / output_path.name
+	else:
+		actual_render_path = output_path
+
 	success = render_timeline_youtube(str(output_path), args.timeline_index, config)
 	
 	if success:
-		print(f"\n✅ YouTube render complete: {output_path}")
-		if output_path.exists():
-			size_mb = output_path.stat().st_size / (1024 * 1024)
+		print(f"\n✅ YouTube render complete: {actual_render_path}")
+		if actual_render_path.exists():
+			size_mb = actual_render_path.stat().st_size / (1024 * 1024)
 			print(f"File size: {size_mb:.1f} MB")
+		
+		# Prompt for YouTube upload
+		print("\n" + "=" * 72)
+		print("📤 YOUTUBE UPLOAD")
+		print("=" * 72)
+		print(f"   Video: {actual_render_path}")
+		print(f"   Size:  {size_mb:.1f} MB")
+		print("=" * 72)
+		try:
+			while True:
+				response = input("\nUpload to YouTube? (y/N): ").strip().lower()
+				if response in ('y', 'yes'):
+					print("✓ Starting YouTube upload...")
+					import subprocess
+					script_dir = Path(__file__).resolve().parent
+					config_path = Path(args.config).resolve()
+					upload_cmd = [
+						sys.executable,
+						str(script_dir / "upload_youtube.py"),
+						"--video", str(actual_render_path),
+						"--config", str(config_path),
+					]
+					print(f"\n▶ Upload to YouTube")
+					print("-" * 72)
+					print(" ".join(upload_cmd))
+					print("-" * 72)
+					upload_result = subprocess.run(upload_cmd, cwd=script_dir)
+					if upload_result.returncode == 0:
+						print("✔ YouTube upload completed successfully")
+					else:
+						print(f"\n⚠️  Upload reported issues (exit code {upload_result.returncode})")
+					break
+				elif response in ('n', 'no', ''):
+					print("✗ Upload skipped")
+					break
+				else:
+					print("Please enter 'y' or 'n'")
+		except (EOFError, KeyboardInterrupt):
+			print("\n✗ Upload skipped")
 	else:
 		print("\n❌ YouTube render failed")
 		sys.exit(1)

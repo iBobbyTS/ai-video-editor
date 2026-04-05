@@ -24,6 +24,116 @@ This pipeline isn't just a tool—it's a force multiplier for solo creators who 
 python run_pipeline.py
 ```
 
+### Pipeline Modes
+
+The pipeline supports three modes, set via `"mode"` in `project_config.json` or `--mode` on the command line (CLI overrides config):
+
+| Mode | Audio | Speed | Boring detection | Use case |
+|------|-------|-------|------------------|----------|
+| `build` | Muted → background music | Variable (1x–6x by scene rating) | LLM visual analysis only | Silent build/craft videos — no narration |
+| `unboxing` | **Kept** (narration preserved) | **1.0x always** | Audio silence + video freeze + LLM | Voice-over videos — unboxing, reviews, tutorials |
+| `reels` | Muted → music overlay | 1.0x | N/A (uses existing analysis) | Short-form 9:16 vertical clips |
+
+#### Mode benefits comparison
+
+| Feature | Build | Unboxing | Reels |
+|---------|:-----:|:--------:|:-----:|
+| AI scene classification (Qwen2.5-VL) | ✅ | ✅ | — |
+| Speed ramping (1x–6x) | ✅ | — | — |
+| Audio silence detection (ffmpeg) | — | ✅ | — |
+| Video freeze detection (ffmpeg) | — | ✅ | — |
+| Original narration preserved | — | ✅ | — |
+| Background music overlay | ✅ | — | ✅ |
+| Teaser section generated | ✅ | ✅ | — |
+| 9:16 vertical crop | — | — | ✅ |
+| Duplicate scene detection | ✅ | ✅ | — |
+| Watermark overlay | ✅ | ✅ | ✅ |
+
+#### How each mode runs end-to-end
+
+**Build mode** — silent workshop footage, speed-ramped with background music:
+
+| Stage | What happens |
+|-------|-------------|
+| **1 — Analysis** | Frames sampled every 2 s → ResNet-50 + CLIP + Qwen2.5-VL classify each scene (boring / low / moderate / interesting) and assign speed 1x–6x |
+| **2 — Extraction** | FFmpeg (NVENC) renders each clip at its assigned speed; audio is discarded (speed > 1x uses `atempo` chain) |
+| **3 — Timeline** | FCPXML built with teaser + intro + main + outro; video audio muted (−96 dB); background music shuffled on lane 2; cross-dissolves + watermark |
+
+**Unboxing mode** — narrated video, audio preserved, boring = silent + static:
+
+| Stage | What happens |
+|-------|-------------|
+| **1 — Analysis** | Same AI vision pass **plus** `analyze_audio.py` runs `ffmpeg silencedetect` (< −35 dB, ≥ 3 s) and `freezedetect` (threshold 0.02) on each video. LLM prompt tuned for narration quality, reveals, close-ups. All speeds forced to **1.0x** |
+| **1b — Boring merge** | Scenes where silence AND freeze overlap ≥ 60 % are downgraded to *boring* and excluded |
+| **2 — Extraction** | FFmpeg renders at 1.0x — **audio stays intact** (no atempo, no mute) |
+| **3 — Timeline** | FCPXML keeps original audio on every clip (no −96 dB mute); **no background music** added; teaser, intro/outro, watermark still included |
+
+**Reels mode** — short vertical clips from existing analysis:
+
+| Stage | What happens |
+|-------|-------------|
+| **1–2** | Skipped (reuses existing `scene_analysis_*.json` + `ai_clips/`) |
+| **3 — Timeline** | Builds `timeline_reels.fcpxml` with 9:16 crop, vertical layout, music from `assets/music-teaser/` |
+
+#### Config examples
+
+**Build mode** (default) — silent workshop footage, speed-ramped with background music:
+```json
+{
+  "mode": "build"
+}
+```
+
+**Unboxing mode** — narrated video, audio preserved, boring = silent + static segments cut:
+```json
+{
+  "mode": "unboxing",
+  "unboxing": {
+    "keep_audio": true,
+    "keep_speed": true,
+    "silence_threshold_db": -35,
+    "silence_min_duration": 3.0,
+    "motion_threshold": 0.02,
+    "boring_requires_both": true
+  }
+}
+```
+
+| Config key | Purpose | Default |
+|------------|---------|---------|
+| `keep_audio` | Preserve original narration in extracted clips | `true` |
+| `keep_speed` | Force all scenes to 1.0x (no speedup) | `true` |
+| `silence_threshold_db` | dB level below which audio counts as "silent" | `-35` |
+| `silence_min_duration` | Minimum seconds of silence to flag a segment | `3.0` |
+| `motion_threshold` | Freeze-detect pixel-diff threshold (0 = identical frames) | `0.02` |
+| `boring_requires_both` | Require **both** silence + freeze to mark boring (`false` = either) | `true` |
+
+**Reels mode** — skip analysis/extract, only build vertical short timeline:
+```json
+{
+  "mode": "reels"
+}
+```
+
+#### Command-line override
+
+```bash
+# Run as build (default)
+python run_pipeline.py
+
+# Run as unboxing — keep narration audio, no speedup
+python run_pipeline.py --mode unboxing
+
+# Run as reels only
+python run_pipeline.py --mode reels
+# or equivalently:
+python run_pipeline.py --reels-only
+```
+
+### Unboxing mode details
+
+In unboxing mode the pipeline additionally runs **audio silence detection** (ffmpeg `silencedetect`) and **freeze/static frame detection** (ffmpeg `freezedetect`) on each video. Segments where both silence AND static video overlap are marked as boring and excluded. All other scenes keep their original 1.0x speed and narration audio intact — no background music is added.
+
 **What it does:**
 1. **Stage 1**: Analyzes all videos with AI (ResNet-50, CLIP, Qwen2.5-VL)
 2. **Stage 2**: Extracts scenes and creates speed-adjusted clips

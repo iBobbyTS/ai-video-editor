@@ -188,7 +188,7 @@ def extract_scene(video_path, scene, output_path, clip_format="mkv", export_cfg=
         print("✓")
 
 
-def process_analysis(analysis_file, video_dir, output_base_dir, exclude_boring=False, clip_format="mkv", export_cfg=None):
+def process_analysis(analysis_file, video_dir, output_base_dir, exclude_boring=False, clip_format="mkv", export_cfg=None, mode="build"):
     with open(analysis_file, 'r') as f:
         analysis = json.load(f)
     
@@ -209,6 +209,11 @@ def process_analysis(analysis_file, video_dir, output_base_dir, exclude_boring=F
     scenes = analysis['scenes']
     showcases = analysis.get('showcases', [])
     summary = analysis.get('summary', {})
+
+    # In unboxing mode, force all speeds to 1.0x to preserve narration audio
+    if mode == 'unboxing':
+        for scene in scenes:
+            scene['speed'] = 1.0
     
     # Filter out boring scenes if requested
     if exclude_boring:
@@ -324,11 +329,13 @@ def main():
     parser.add_argument("--video-dir", help="Directory containing source videos")
     parser.add_argument("--output-dir", default=None, help="Base output directory for clips")
     parser.add_argument("--exclude-boring", action="store_true", help="Skip extraction of boring scenes")
+    parser.add_argument("--mode", choices=["build", "unboxing", "reels"], default=None, help="Pipeline mode (unboxing forces 1.0x speed)")
     args = parser.parse_args()
 
     config = load_project_config(args.config)
     paths_cfg = config.get("paths", {})
     pipeline_cfg = config.get("pipeline", {})
+    mode = args.mode or config.get('mode', 'build')
     output_dir = args.output_dir or paths_cfg.get("clips_dir") or OUTPUT_DIR
     video_dir = args.video_dir or paths_cfg.get("video_dir") or paths_cfg.get("input_dir")
     exclude_boring = args.exclude_boring or pipeline_cfg.get("exclude_boring", False)
@@ -355,7 +362,8 @@ def main():
             output_dir,
             exclude_boring=exclude_boring,
             clip_format=clip_format,
-            export_cfg=export_cfg
+            export_cfg=export_cfg,
+            mode=mode
         )
 
     print(f"\n💡 Next: run export_resolve.py to build the combined timeline.")

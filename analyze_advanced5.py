@@ -922,14 +922,15 @@ def fallback_scene_boundaries(frames):
     return transitions
 
 
-def llm_classify_scenes(scenes, frames_by_scene, llava_model):
+def llm_classify_scenes(scenes, frames_by_scene, llava_model, mode='build'):
     """Use LLM to classify scenes with explainable reasoning."""
-    print(f"\n🤖 [PASS 2 - 2/3] LLM classifying scenes...")
+    print(f"\n🤖 [PASS 2 - 2/3] LLM classifying scenes (mode={mode})...")
     
     if llava_model is None:
         print("   ⚠️  LLaVA not available, falling back to rule-based")
-        return fallback_classify_scenes(scenes)
+        return fallback_classify_scenes(scenes, mode=mode)
     
+    is_unboxing = (mode == 'unboxing')
     model = llava_model["model"]
     
     for scene in scenes:
@@ -938,7 +939,7 @@ def llm_classify_scenes(scenes, frames_by_scene, llava_model):
         
         if not scene_frames:
             scene['classification'] = 'low'
-            scene['speed'] = 4.0
+            scene['speed'] = 1.0 if is_unboxing else 4.0
             scene['llm_reasoning'] = 'No frames available'
             continue
         
@@ -955,8 +956,30 @@ def llm_classify_scenes(scenes, frames_by_scene, llava_model):
         avg_interest = scene.get('semantic_interest', 0)
         dup_ratio = scene.get('duplicate_ratio', 0)
         
-        # Ask LLM to rate this scene
-        prompt = f"""Rate this {scene['duration']:.0f}s video scene from scale model building on interest level (1-10).
+        # Ask LLM to rate this scene - prompt differs by mode
+        if is_unboxing:
+            prompt = f"""Rate this {scene['duration']:.0f}s video scene from a scale model kit unboxing/showcase on interest level (1-10).
+
+IMPORTANT: For unboxing/showcase content, highly value:
+- Revealing box contents, sprues, parts, decals, and instructions
+- Narration explaining features, quality, or comparisons
+- Close-up shots of mold quality, part detail, or unique features
+- Overview shots showing the full kit contents
+- Moments of discovery or reaction
+
+Lower value:
+- Extended silence with no movement (dead air)
+- Repeated shots of the same angle with no new information
+- Camera adjusting / out of focus / shaky footage
+
+Sample descriptions:
+{captions_text}
+
+Metrics: interest={avg_interest:.2f}, duplication={dup_ratio:.0%}
+
+Rate 1-10 based on showcase value and viewer engagement. Format: "Rating: X/10 - reason"."""
+        else:
+            prompt = f"""Rate this {scene['duration']:.0f}s video scene from scale model building on interest level (1-10).
 
 IMPORTANT: For model building content, highly value:
 - Close-up detail shots showing parts, interiors, or intricate work
@@ -993,18 +1016,31 @@ Rate 1-10 based on craftsmanship value and detail shown. Format: "Rating: X/10 -
                 rating = 5  # Default
             
             # Classify based on rating
-            if rating >= 8:
-                scene['classification'] = 'interesting'
+            if is_unboxing:
+                # Unboxing mode: always 1.0x speed, just classify for cut/keep
+                if rating >= 7:
+                    scene['classification'] = 'interesting'
+                elif rating >= 5:
+                    scene['classification'] = 'moderate'
+                elif rating >= 3:
+                    scene['classification'] = 'low'
+                else:
+                    scene['classification'] = 'boring'
                 scene['speed'] = 1.0
-            elif rating >= 6:
-                scene['classification'] = 'moderate'
-                scene['speed'] = 2.0
-            elif rating >= 4:
-                scene['classification'] = 'low'
-                scene['speed'] = 4.0
             else:
-                scene['classification'] = 'boring'
-                scene['speed'] = 6.0
+                # Build mode: classification determines speed
+                if rating >= 8:
+                    scene['classification'] = 'interesting'
+                    scene['speed'] = 1.0
+                elif rating >= 6:
+                    scene['classification'] = 'moderate'
+                    scene['speed'] = 2.0
+                elif rating >= 4:
+                    scene['classification'] = 'low'
+                    scene['speed'] = 4.0
+                else:
+                    scene['classification'] = 'boring'
+                    scene['speed'] = 6.0
             
             scene['llm_rating'] = rating
             scene['llm_reasoning'] = response
@@ -1014,15 +1050,16 @@ Rate 1-10 based on craftsmanship value and detail shown. Format: "Rating: X/10 -
         except Exception as e:
             print(f"   ⚠️  LLM classification failed for scene {scene['scene_num']}: {e}")
             scene['classification'] = 'low'
-            scene['speed'] = 4.0
+            scene['speed'] = 1.0 if is_unboxing else 4.0
             scene['llm_reasoning'] = f'Error: {str(e)}'
     
     return scenes
 
 
-def fallback_classify_scenes(scenes):
+def fallback_classify_scenes(scenes, mode='build'):
     """Fallback rule-based scene classification."""
-    print("   Using rule-based classification (fallback)")
+    is_unboxing = (mode == 'unboxing')
+    print(f"   Using rule-based classification (fallback, mode={mode})")
     
     for scene in scenes:
         interest = scene.get('semantic_interest', 0)
@@ -1031,19 +1068,19 @@ def fallback_classify_scenes(scenes):
         
         if (boring > 0.50 and interest < 0.22) or dup_ratio > 0.80:
             scene['classification'] = 'boring'
-            scene['speed'] = 6.0
+            scene['speed'] = 1.0 if is_unboxing else 6.0
         elif dup_ratio > 0.60 or boring > 0.35:
             scene['classification'] = 'low'
-            scene['speed'] = 4.0
+            scene['speed'] = 1.0 if is_unboxing else 4.0
         elif interest > 0.34 and dup_ratio < 0.40:
             scene['classification'] = 'interesting'
             scene['speed'] = 1.0
         elif interest > 0.26:
             scene['classification'] = 'moderate'
-            scene['speed'] = 2.0
+            scene['speed'] = 1.0 if is_unboxing else 2.0
         else:
             scene['classification'] = 'low'
-            scene['speed'] = 4.0
+            scene['speed'] = 1.0 if is_unboxing else 4.0
         
         print(f"   Scene {scene['scene_num']:02d}: {scene['classification']} ({scene['speed']:.1f}x)")
     
@@ -1247,13 +1284,15 @@ def print_summary(result):
     print("=" * 70)
 
 
-def process_video_two_pass(video_path, output_dir, sample_interval, llava_model, skip_duplicate_captions=False, max_scene_length=None):
+def process_video_two_pass(video_path, output_dir, sample_interval, llava_model, skip_duplicate_captions=False, max_scene_length=None, mode='build', unboxing_config=None):
     """Two-pass workflow: metadata collection + LLM analysis
     
     Args:
         llava_model: Pre-loaded Qwen2.5-VL model (passed from main, reused across videos)
         skip_duplicate_captions: Skip captioning duplicate frames (saves ~10-15% time)
         max_scene_length: Maximum scene duration in seconds (e.g., 40). Splits longer scenes.
+        mode: 'build' (default), 'unboxing', or 'reels'
+        unboxing_config: dict with unboxing-specific settings (from config['unboxing'])
     """
     print("\n" + "=" * 70)
     print(f"🎬 Processing: {video_path.name}")
@@ -1322,7 +1361,20 @@ def process_video_two_pass(video_path, output_dir, sample_interval, llava_model,
                 break
     
     # LLM classify scenes
-    scenes = llm_classify_scenes(scenes, frames_by_scene, llava_model)
+    scenes = llm_classify_scenes(scenes, frames_by_scene, llava_model, mode=mode)
+    
+    # For unboxing mode: run audio+motion analysis and refine boring detection
+    if mode == 'unboxing':
+        from analyze_audio import analyze_audio_and_motion, mark_scenes_from_audio_analysis
+        print("\n" + "📦 " * 35)
+        print("UNBOXING MODE: Audio & Motion Analysis")
+        print("📦 " * 35)
+        audio_result = analyze_audio_and_motion(video_path, unboxing_config or {})
+        scenes = mark_scenes_from_audio_analysis(scenes, audio_result)
+        # Store audio analysis in result for reference
+        _audio_analysis_cache = audio_result
+    else:
+        _audio_analysis_cache = None
     
     # LLM select showcases
     showcases = llm_select_showcases(frames, llava_model, num_showcases=3)
@@ -1333,6 +1385,13 @@ def process_video_two_pass(video_path, output_dir, sample_interval, llava_model,
     
     # Add showcases to result
     result['showcases'] = showcases
+    result['mode'] = mode
+    if _audio_analysis_cache is not None:
+        result['audio_analysis'] = {
+            'silence_ranges': _audio_analysis_cache['silence_ranges'],
+            'static_ranges': _audio_analysis_cache['static_ranges'],
+            'boring_segments': _audio_analysis_cache['boring_segments'],
+        }
     with open(output_file, 'w') as f:
         json.dump(result, f, indent=2)
     
@@ -1356,11 +1415,14 @@ def main():
     parser.add_argument("--sample-interval", type=int, default=None, help="Frame sample interval (seconds)")
     parser.add_argument("--skip-duplicate-captions", action="store_true", help="Skip captioning duplicate frames (10-15%% speed boost)")
     parser.add_argument("--max-scene-length", type=int, default=None, help="Max scene duration in seconds (e.g., 40). Splits longer scenes.")
+    parser.add_argument("--mode", default=None, choices=['build', 'unboxing', 'reels'], help="Pipeline mode: build (default), unboxing (keep audio/speed), reels")
     args = parser.parse_args()
 
     config = load_project_config(args.config)
     paths_cfg = config.get("paths", {})
     analysis_cfg = config.get("analysis", {})
+    mode = args.mode or config.get('mode', 'build')
+    unboxing_config = config.get('unboxing', {}) if mode == 'unboxing' else None
 
     sample_interval = args.sample_interval if args.sample_interval is not None else analysis_cfg.get("sample_interval", SAMPLE_INTERVAL)
 
@@ -1405,6 +1467,31 @@ def main():
         if metadata_file.exists() and scene_analysis_file.exists():
             print(f"\n⏭️  Skipping {video_path.name} - analysis already complete")
             print(f"   (Found: {metadata_file.name} + {scene_analysis_file.name})")
+            # For unboxing mode: ensure audio analysis is applied
+            # (may be missing if video was analyzed before unboxing mode existed,
+            #  or if audio trimming logic was updated)
+            if mode == 'unboxing':
+                from analyze_audio import analyze_audio_and_motion, mark_scenes_from_audio_analysis
+                with open(scene_analysis_file) as f:
+                    cached = json.load(f)
+                cached_scenes = cached.get('scenes', [])
+                # Check if audio analysis is complete and up-to-date
+                has_silence_data = len(cached.get('audio_analysis', {}).get('silence_ranges', [])) > 0
+                has_trimming = any(s.get('audio_trimmed') for s in cached_scenes)
+                needs_audio = not has_silence_data or not has_trimming
+                if needs_audio:
+                    print(f"   🔄 Running audio analysis (voice detection + scene trimming)...")
+                    audio_result = analyze_audio_and_motion(video_path, unboxing_config or {})
+                    cached_scenes = mark_scenes_from_audio_analysis(cached_scenes, audio_result)
+                    cached['scenes'] = cached_scenes
+                    cached['audio_analysis'] = {
+                        'silence_ranges': audio_result['silence_ranges'],
+                        'static_ranges': audio_result['static_ranges'],
+                        'boring_segments': audio_result['boring_segments'],
+                    }
+                    with open(scene_analysis_file, 'w') as f:
+                        json.dump(cached, f, indent=2)
+                    print(f"   ✅ Audio analysis applied to {len(cached_scenes)} scenes")
             skipped_videos.append(video_path)
             output_files.append(scene_analysis_file)
         else:
@@ -1429,7 +1516,9 @@ def main():
                 sample_interval,
                 llava_model,  # Pass the pre-loaded model
                 skip_duplicate_captions=args.skip_duplicate_captions,
-                max_scene_length=args.max_scene_length
+                max_scene_length=args.max_scene_length,
+                mode=mode,
+                unboxing_config=unboxing_config,
             )
             output_files.append(output_file)
         except Exception as e:

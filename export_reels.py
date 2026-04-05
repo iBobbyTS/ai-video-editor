@@ -109,7 +109,7 @@ def create_reels_fcpxml(config=None, output_file=None):
     base_dir = Path(__file__).resolve().parent
 
     # Resolve paths
-    videos_folder = Path(reels_cfg.get('videos_folder', './assets/videos-reels'))
+    videos_folder = Path(config.get('paths', {}).get('videos_reels', './assets/videos-reels'))
     if not videos_folder.is_absolute():
         videos_folder = (base_dir / videos_folder).resolve()
 

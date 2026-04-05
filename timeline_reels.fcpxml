@@ -4,29 +4,29 @@
     <format name="FFVideoFormat1080x1920p24" height="1920" id="r0" frameDuration="1/24s" width="1080" />
     <format name="FFVideoFormatRateUndefined" height="1920" id="r2" frameDuration="1/24s" width="1080" />
     <effect name="Cross Dissolve" id="r1" uid="FxPlug:4731E73A-8DAC-4113-9A30-AE85B1761265" />
-    <asset name="IMG_4978.MOV" start="0/1s" hasAudio="1" id="r3" uid="file:///home/mazsola/ai-video-editor/assets/videos-reels/IMG_4978.MOV" duration="95/6s" hasVideo="1" audioSources="1" format="r0" audioChannels="2">
-      <media-rep src="file:///home/mazsola/ai-video-editor/assets/videos-reels/IMG_4978.MOV" kind="original-media" />
+    <asset name="IMG_5014.MOV" start="0/1s" hasAudio="1" id="r3" uid="file:///mnt/synology/dokumentumok/%21iphone/Alpha%20Model%20Aston%20Martin%20-%20Unboxing/reels/IMG_5014.MOV" duration="50719/4949s" hasVideo="1" audioSources="1" format="r0" audioChannels="2">
+      <media-rep src="file:///mnt/synology/dokumentumok/%21iphone/Alpha%20Model%20Aston%20Martin%20-%20Unboxing/reels/IMG_5014.MOV" kind="original-media" />
     </asset>
-    <asset name="REPINA - Better Days.wav" start="0/1s" hasAudio="1" id="r4" uid="file:///home/mazsola/ai-video-editor/assets/music-teaser/REPINA%20-%20Better%20Days.wav" duration="6138997/44100s" hasVideo="0" audioSources="1" audioChannels="2">
-      <media-rep src="file:///home/mazsola/ai-video-editor/assets/music-teaser/REPINA%20-%20Better%20Days.wav" kind="original-media" />
+    <asset name="Ikoliks - Get That Feeling.wav" start="0/1s" hasAudio="1" id="r4" uid="file:///home/mazsola/ai-video-editor/assets/music-teaser/Ikoliks%20-%20Get%20That%20Feeling.wav" duration="6646697/44100s" hasVideo="0" audioSources="1" audioChannels="2">
+      <media-rep src="file:///home/mazsola/ai-video-editor/assets/music-teaser/Ikoliks%20-%20Get%20That%20Feeling.wav" kind="original-media" />
     </asset>
   </resources>
   <library>
     <event name="Reels Timeline (Resolve)">
       <project name="Reels Timeline (Resolve)">
-        <sequence tcStart="0/1s" duration="95/6s" format="r0" tcFormat="NDF">
+        <sequence tcStart="0/1s" duration="50719/4949s" format="r0" tcFormat="NDF">
           <spine>
-            <asset-clip name="IMG_4978.MOV" ref="r3" start="0/1s" offset="0/1s" duration="95/6s" format="r0" enabled="1" tcFormat="NDF" audioStart="0/1s" audioDuration="95/6s">
+            <asset-clip name="IMG_5014.MOV" ref="r3" start="0/1s" offset="0/1s" duration="50719/4949s" format="r0" enabled="1" tcFormat="NDF" audioStart="0/1s" audioDuration="50719/4949s">
               <adjust-volume amount="-96dB" />
               <adjust-transform position="0 0" scale="1 1" anchor="0 0" />
             </asset-clip>
-            <asset-clip name="REPINA - Better Days.wav" ref="r4" start="0/1s" offset="0/1s" duration="95/6s" enabled="1" tcFormat="NDF" lane="2" audioStart="0/1s" audioDuration="95/6s">
+            <asset-clip name="Ikoliks - Get That Feeling.wav" ref="r4" start="0/1s" offset="0/1s" duration="50719/4949s" enabled="1" tcFormat="NDF" lane="2" audioStart="0/1s" audioDuration="50719/4949s">
               <filter-audio name="Volume">
                 <param name="gain">
                   <keyframe time="0/1s" value="-60.0" interp="linear" />
                   <keyframe time="1/1s" value="0" interp="linear" />
-                  <keyframe time="89/6s" value="0" interp="linear" />
-                  <keyframe time="95/6s" value="-60.0" interp="linear" />
+                  <keyframe time="45770/4949s" value="0" interp="linear" />
+                  <keyframe time="50719/4949s" value="-60.0" interp="linear" />
                 </param>
               </filter-audio>
             </asset-clip>

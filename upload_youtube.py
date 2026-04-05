@@ -360,21 +360,24 @@ def load_config(config_path):
     return {}
 
 
+def _find_first_image(folder):
+    """Return the most recent image file in a folder, or None."""
+    folder = Path(folder)
+    if not folder.exists():
+        return None
+    candidates = []
+    for ext in ("*.jpg", "*.jpeg", "*.png", "*.JPG", "*.JPEG", "*.PNG"):
+        candidates.extend(folder.glob(ext))
+    return max(candidates, key=lambda p: p.stat().st_mtime) if candidates else None
+
+
 def find_asset_thumbnail():
     """Find a thumbnail image, checking assets/photo-index/ first, then assets/photos/."""
     base_dir = Path(__file__).resolve().parent
     for folder in ("photo-index", "photos"):
-        assets_dir = base_dir / "assets" / folder
-        if not assets_dir.exists():
-            continue
-
-        candidates = []
-        for ext in ("*.jpg", "*.jpeg", "*.png", "*.JPG", "*.JPEG", "*.PNG"):
-            candidates.extend(assets_dir.glob(ext))
-
-        if candidates:
-            return max(candidates, key=lambda p: p.stat().st_mtime)
-
+        result = _find_first_image(base_dir / "assets" / folder)
+        if result:
+            return result
     return None
 
 
@@ -514,8 +517,15 @@ def main():
     config = load_config(args.config)
     youtube_cfg = config.get("youtube", {})
 
-    # Resolve thumbnail (optional)
-    thumbnail_path = Path(args.thumbnail) if args.thumbnail else find_asset_thumbnail()
+    paths_cfg = config.get("paths", {})
+
+    # Resolve thumbnail (optional): CLI arg > config thumbnail_dir > auto-discovery
+    if args.thumbnail:
+        thumbnail_path = Path(args.thumbnail)
+    elif paths_cfg.get("thumbnail_dir"):
+        thumbnail_path = _find_first_image(Path(paths_cfg["thumbnail_dir"]))
+    else:
+        thumbnail_path = find_asset_thumbnail()
     if thumbnail_path and not thumbnail_path.exists():
         print(f"ERROR: Thumbnail file not found: {thumbnail_path}")
         sys.exit(1)

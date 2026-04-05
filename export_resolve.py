@@ -310,6 +310,10 @@ def load_analyses(analysis_path, video_dir=None, video_file=None):
         else:
             video_path = analysis_file.parent / video_name
         
+        if not video_path.exists():
+            print(f"⚠️  Skipping {video_name} — video file not found: {video_path}")
+            continue
+
         analyses.append({
             'data': data,
             'analysis_file': analysis_file,
@@ -441,6 +445,9 @@ def create_fcpxml_timeline(analysis_path, video_dir, output_file, clip_base_dir=
         
         for i, scene in enumerate(scenes, 1):
             speed = scene['speed']
+            # In unboxing mode, force 1.0x speed (narration must play at normal rate)
+            if config.get('mode', 'build') == 'unboxing':
+                speed = 1.0
             duration_sec = scene['duration']
             output_duration_sec = duration_sec / speed
             output_duration_frames = round(output_duration_sec * fps)
@@ -737,6 +744,8 @@ def create_fcpxml_timeline(analysis_path, video_dir, output_file, clip_base_dir=
                 if scene.get('classification') == 'interesting':
                     scene_num = scene['scene_num']
                     speed = scene['speed']
+                    if config.get('mode', 'build') == 'unboxing':
+                        speed = 1.0
                     rendered_path = find_rendered_clip(render_dir, video_stem, scene_num, 'interesting', speed, extensions=clip_exts)
                     if rendered_path and rendered_path.exists():
                         llm_rating = scene.get('llm_rating', 8)
@@ -1083,6 +1092,7 @@ def create_fcpxml_timeline(analysis_path, video_dir, output_file, clip_base_dir=
 
     watermark_config = timeline_config.get('watermark') or config.get('watermark')
     audio_config = config.get('audio') if isinstance(config.get('audio'), dict) else {}
+    pipeline_mode = config.get('mode', 'build')
     background_music_config = (
         timeline_config.get('background_music')
         or audio_config.get('background_music')
@@ -1419,13 +1429,27 @@ def create_fcpxml_timeline(analysis_path, video_dir, output_file, clip_base_dir=
         if transition_seconds and transition_seconds > 0:
             transition_duration = Fraction(transition_seconds).limit_denominator(10000)
     transition_half = transition_duration / 2 if transition_duration else None
+    # In unboxing mode, skip transitions between content clips (narration audio
+    # doesn't cross-dissolve well). Keep transitions around intro/outro/teaser/closing.
+    _NON_CONTENT_CLASSES = {'teaser', 'intro', 'outro', 'closing_photo', 'closing_teaser'}
+    def _wants_transition(idx):
+        """Return True if a transition should be placed after clip at idx."""
+        if not transition_half or idx >= len(clip_infos) - 1:
+            return False
+        if pipeline_mode == 'unboxing':
+            cur_cls = clip_infos[idx]['scene'].get('classification', '')
+            nxt_cls = clip_infos[idx + 1]['scene'].get('classification', '')
+            # Skip transition when both clips are content (voice-over audio)
+            if cur_cls not in _NON_CONTENT_CLASSES and nxt_cls not in _NON_CONTENT_CLASSES:
+                return False
+        return True
     clip_timeline_ranges = []
     timeline_cursor = Fraction(0, 1)
     for idx, info in enumerate(clip_infos):
         clip_start = timeline_cursor
         clip_end = timeline_cursor + info['output_duration_frac']
         clip_timeline_ranges.append((clip_start, clip_end))
-        if transition_half and idx < len(clip_infos) - 1:
+        if _wants_transition(idx):
             timeline_cursor = (clip_end - transition_half).limit_denominator(_FRAC_LIMIT)
         else:
             timeline_cursor = clip_end.limit_denominator(_FRAC_LIMIT)
@@ -1444,6 +1468,9 @@ def create_fcpxml_timeline(analysis_path, video_dir, output_file, clip_base_dir=
         end_sec = scene['end_time']
         duration_sec = scene['duration']
         speed = scene['speed']
+        # In unboxing mode, force 1.0x speed (narration must play at normal rate)
+        if config.get('mode', 'build') == 'unboxing':
+            speed = 1.0
         classification = scene.get('classification', 'unknown')
         output_duration_frac = clip_info['output_duration_frac']
         output_duration_sec = float(output_duration_frac)
@@ -1541,9 +1568,17 @@ def create_fcpxml_timeline(analysis_path, video_dir, output_file, clip_base_dir=
                     })
         
         # Add adjust-volume to clips that need audio adjustment
-        if snippet_volume_db is not None:
-            clip_class = scene.get('classification')
-            # Mute all clips except intro/outro (includes opening teaser/showcase clips before Start-Intro)
+        pipeline_mode = config.get('mode', 'build')
+        clip_class = scene.get('classification')
+        if pipeline_mode == 'unboxing':
+            # Unboxing mode: boost clip audio for voice-over narration
+            unboxing_clip_vol = config.get('unboxing', {}).get('clip_volume_db', 13)
+            if clip_class not in ('intro', 'outro'):
+                SubElement(clip, 'adjust-volume', {
+                    'amount': f'{unboxing_clip_vol}dB'
+                })
+        elif snippet_volume_db is not None:
+            # Build mode: mute clip audio (background music replaces it)
             if clip_class not in ('intro', 'outro'):
                 SubElement(clip, 'adjust-volume', {
                     'amount': f"{snippet_volume_db}dB"
@@ -1574,7 +1609,8 @@ def create_fcpxml_timeline(analysis_path, video_dir, output_file, clip_base_dir=
         timeline_pos_sec = (timeline_pos_sec + output_duration_frac).limit_denominator(_FRAC_LIMIT)
         
         # Add transition to next clip (except for last clip) with overlap
-        if transition_duration and i < len(clip_infos):
+        # In unboxing mode, skip transitions between content clips (voice-over audio)
+        if _wants_transition(i - 1):
             transition_offset = timeline_pos_sec - transition_half
             transition = SubElement(spine, 'transition', {
                 'name': 'Transition',
@@ -1739,8 +1775,14 @@ def create_fcpxml_timeline(analysis_path, video_dir, output_file, clip_base_dir=
                     fade_out = fade_out_duration if fade_out_duration <= clip_duration else clip_duration
                     attributes['audioFadeOut'] = _fmt_time(fade_out)
                 music_clip = SubElement(spine, 'asset-clip', attributes)
+                # In unboxing mode, lower background music so narration is audible
+                if pipeline_mode == 'unboxing':
+                    unboxing_music_vol = config.get('unboxing', {}).get('music_volume_db', -32)
+                    music_volume_db = f'{unboxing_music_vol}dB'
+                else:
+                    music_volume_db = '0dB'
                 SubElement(music_clip, 'adjust-volume', {
-                    'amount': '0dB'
+                    'amount': music_volume_db
                 })
 
                 if fade_in_duration or fade_out_duration:
@@ -2115,6 +2157,7 @@ if __name__ == '__main__':
     parser.add_argument('--dedupe', action='store_true', help='Remove near-duplicate scenes across videos')
     parser.add_argument('--hash-threshold', type=int, default=6, help='Hamming distance threshold for dedupe')
     parser.add_argument('--config', default='project_config.json', help='Project config JSON file')
+    parser.add_argument('--mode', choices=['build', 'unboxing', 'reels'], default=None, help='Pipeline mode (overrides config file)')
     args = parser.parse_args()
     
     analysis_path = args.analysis
@@ -2124,6 +2167,8 @@ if __name__ == '__main__':
     
     # Load config and get paths
     config = load_project_config(args.config)
+    if args.mode:
+        config['mode'] = args.mode
     paths_cfg = config.get('paths', {})
     video_dir = args.video_dir or paths_cfg.get('video_dir') or paths_cfg.get('video') or paths_cfg.get('input_dir') or '.'
     clips_dir = args.clips_dir or paths_cfg.get('clips_dir') or './ai_clips'
