@@ -128,6 +128,12 @@ python run_pipeline.py --mode unboxing
 python run_pipeline.py --mode reels
 # or equivalently:
 python run_pipeline.py --reels-only
+
+# Non-interactive (auto-confirm all prompts)
+python run_pipeline.py --mode unboxing --yes
+
+# Full unboxing pipeline + reels, no prompts
+python run_pipeline.py --mode unboxing --reels-only --yes
 ```
 
 ### Unboxing mode details
@@ -208,6 +214,15 @@ graph TB
         YT[▶️ YouTube Video]
     end
     
+    %% Reels Pipeline
+    subgraph SR[" 📱 REELS / SHORTS PIPELINE "]
+        REELS_EXP[export_reels.py<br/>9:16 vertical 1080x1920]
+        REELS_XML[timeline_reels.fcpxml]
+        REELS_RENDER[render_reels.py<br/>H.265 NVIDIA @ 15 Mbps]
+        REELS_UP[upload_youtube.py --shorts]
+        SHORTS[📱 YouTube Shorts]
+    end
+    
     %% Flow
     RAW --> ANALYZE
     ANALYZE --> MODELS
@@ -231,7 +246,15 @@ graph TB
     UPLOAD --> AUTH
     AUTH --> YT
     
+    %% Reels flow
+    RAW -.-> REELS_EXP
+    REELS_EXP --> REELS_XML
+    REELS_XML --> REELS_RENDER
+    REELS_RENDER --> REELS_UP
+    REELS_UP --> SHORTS
+    
     %% Styling
+    classDef stageR fill:#e0f7fa,stroke:#00838f,stroke-width:2px
     classDef stage1 fill:#fff3e0,stroke:#f57c00,stroke-width:2px
     classDef stage2 fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
     classDef stage3 fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
@@ -243,6 +266,7 @@ graph TB
     class TIMELINE,BUILD,FCPXML stage3
     class IMPORT,LUT,RENDER,MP4 stage4
     class UPLOAD,AUTH,YT stage5
+    class REELS_EXP,REELS_XML,REELS_RENDER,REELS_UP,SHORTS stageR
 ```
 
 📊 **For detailed component breakdown and performance metrics, see [PIPELINE_DIAGRAM.md](PIPELINE_DIAGRAM.md)**
@@ -349,25 +373,38 @@ All Python dependencies are pinned in [requirements.txt](requirements.txt).
 
 ```
 ~/video/
-├── analyze_advanced5.py          # Stage 1: AI video analysis
+├── run_pipeline.py                # Master orchestrator (all stages)
+├── analyze_advanced5.py           # Stage 1: AI video analysis
 ├── extract_scenes.py              # Stage 2: Scene extraction
-├── export_resolve.py              # Stage 3: Timeline export
-├── run_pipeline.py                # Master orchestrator
-├── apply_lut_resolve.py           # Optional LUT application in Resolve
-├── render_youtube.py              # Render timeline to MP4 (Resolve API)
-├── upload_youtube.py              # Upload to YouTube + thumbnail
-├── project_config.json            # Configuration file
+├── export_resolve.py              # Stage 3: Timeline export (16:9)
+├── export_reels.py                # Reels timeline export (9:16 vertical)
+├── apply_lut_resolve.py           # LUT application via Resolve API
+├── render_youtube.py              # Render 4K MP4 via Resolve API
+├── render_reels.py                # Render 1080x1920 Shorts MP4 via Resolve
+├── upload_youtube.py              # Upload to YouTube (main + shorts)
+├── project_config.json            # Project configuration
 ├── assets/
 │   ├── Start-Intro-V3.mov        # Intro video (10-bit)
 │   ├── Finish-Intro-V3.mov       # Outro video (10-bit)
 │   ├── qr-code.jpg                # Watermark image
 │   ├── music-background/          # Background music (WAV)
-│   └── music-teaser/              # Teaser music (WAV)
+│   ├── music-teaser/              # Teaser/reels music (WAV)
+│   ├── photos/                    # Project photos
+│   ├── photo-index/               # Index/thumbnail photos
+│   ├── videos-reels/              # Local reels source videos
+│   ├── teaser-videos/             # Teaser source videos
+│   └── watermark/                 # Watermark assets
 ├── ai_clips/                      # Extracted scene clips
 │   └── {video_stem}/
 │       ├── *_scene_*.mov
 │       └── *_showcase_*.mov
-└── timeline_davinci_resolve.fcpxml # Final timeline
+├── tools/
+│   ├── install_gcc12.sh           # Build GCC 12 for CUDA compatibility
+│   ├── build_llama_cpp_with_gcc12.sh  # Build llama-cpp-python with CUDA
+│   ├── patch_cuda_math.sh         # Patch CUDA math headers
+│   └── test_video_gpu.py          # GPU video processing smoke test
+├── timeline_davinci_resolve.fcpxml # Main timeline (16:9)
+└── timeline_reels.fcpxml           # Reels timeline (9:16)
 ```
 
 ## Usage
@@ -378,17 +415,27 @@ All Python dependencies are pinned in [requirements.txt](requirements.txt).
 # Run the full pipeline - analyze, extract, and generate timeline
 python run_pipeline.py
 
+# Non-interactive mode (auto-confirm all prompts)
+python run_pipeline.py --yes
+
+# Unboxing mode with reels, fully automated
+python run_pipeline.py --mode unboxing --reels-only --yes
+
 # Output: timeline_davinci_resolve.fcpxml + ai_clips/ folder
 ```
 
-This orchestrates all three stages automatically:
-- **Stage 1**: AI analysis of all videos in current directory
+This orchestrates all stages automatically:
+- **Stage 1**: AI analysis of all videos in input directory
 - **Stage 2**: Scene extraction with speed adjustments
 - **Stage 3**: Timeline generation with music, transitions, and effects
+- **Stage 4**: Import to DaVinci Resolve + apply LUT (via Resolve API)
+- **Stage 5**: Render 4K MP4 (via Resolve API)
+- **Stage 6**: Upload to YouTube (OAuth 2.0)
+- **Stage R1–R4** *(with `--reels-only`)*: Reels/Shorts export → Resolve → render → upload
 
 ### Post-Pipeline Steps
 
-After `run_pipeline.py` completes, import and render in DaVinci Resolve:
+If running stages manually after `run_pipeline.py`:
 
 ```bash
 # 1. Import timeline to DaVinci Resolve
@@ -398,11 +445,40 @@ After `run_pipeline.py` completes, import and render in DaVinci Resolve:
 python apply_lut_resolve.py --config project_config.json
 
 # 3. Render from DaVinci Resolve
-python render_youtube.py --output ~/Videos/output.mp4
+python render_youtube.py --output ~/Videos/output.mp4 --config project_config.json
 
 # 4. Upload to YouTube (uses project_config.json defaults)
-python upload_youtube.py --video ~/Videos/output.mp4
+python upload_youtube.py --video ~/Videos/output.mp4 --config project_config.json
 ```
+
+### Reels / YouTube Shorts Pipeline
+
+The reels pipeline generates 9:16 vertical shorts from dedicated short clips:
+
+```bash
+# Run only the reels pipeline (skips main video stages)
+python run_pipeline.py --reels-only --yes
+
+# Or manually step by step:
+
+# 1. Export vertical timeline
+python export_reels.py --config project_config.json --output timeline_reels.fcpxml
+
+# 2. Import to Resolve, apply LUT, then render
+python render_reels.py --output my_shorts.mp4 --config project_config.json
+
+# 3. Upload as YouTube Shorts (with related video link)
+python upload_youtube.py --video ~/Videos/my_shorts.mp4 --config project_config.json --shorts --related-video VIDEO_ID
+```
+
+**Reels pipeline stages** (automated via `--reels-only`):
+
+| Stage | Script | What happens |
+|-------|--------|--------------|
+| R1 | `export_reels.py` | Build 9:16 FCPXML (1080x1920), add music from `assets/music-teaser/` |
+| R2 | Resolve API | Create project, import timeline, apply LUT |
+| R3 | `render_reels.py` | Render H.265 NVIDIA @ 15 Mbps (1080x1920) |
+| R4 | `upload_youtube.py --shorts` | Upload as YouTube Shorts with `#shorts` tag |
 
 ### Manual Stage-by-Stage Execution
 
@@ -444,6 +520,19 @@ python export_resolve.py --config project_config.json \
 --exclude-boring          # Skip boring scenes during extraction
 ```
 
+#### run_pipeline.py
+
+```bash
+--input PATH              # Input video directory (overrides config)
+--config PATH             # Project config file
+--mode MODE               # Pipeline mode: build, unboxing, reels
+--skip-analysis           # Skip Stage 1 (AI analysis)
+--skip-extract            # Skip Stage 2 (scene extraction)
+--skip-export             # Skip Stage 3 (timeline export)
+--reels-only              # Run only the Reels/Shorts pipeline
+--yes, -y                 # Auto-confirm all interactive prompts
+```
+
 #### export_resolve.py
 
 ```bash
@@ -457,6 +546,30 @@ python export_resolve.py --config project_config.json \
 --exclude-boring          # Exclude boring scenes from timeline
 --dedupe                  # Remove duplicate scenes across videos
 --hash-threshold N        # Hamming distance for deduplication (default: 6)
+```
+
+#### export_reels.py
+
+```bash
+--config PATH             # Project config file
+--output PATH             # Output FCPXML file (default: timeline_reels.fcpxml)
+```
+
+#### render_reels.py
+
+```bash
+--output PATH             # Output MP4 filename
+--config PATH             # Project config file
+```
+
+#### upload_youtube.py
+
+```bash
+--video PATH              # Video file to upload
+--config PATH             # Project config file
+--shorts                  # Upload as YouTube Shorts (adds #shorts to title)
+--related-video ID        # Link to related main video (YouTube video ID)
+--thumbnail PATH          # Custom thumbnail image
 ```
 
 ## Configuration
@@ -540,6 +653,10 @@ python export_resolve.py --config project_config.json \
 | `timeline` | `transition_duration` | Cross-dissolve duration | `1.0` |
 | `watermark` | `transparency` | Watermark transparency (0-1) | `0.3` |
 | `background_music` | `fade_duration` | Music fade in/out (seconds) | `3.0` |
+| `reels` | `max_duration` | Maximum shorts duration (seconds) | `59` |
+| `reels` | `resolution` | Shorts resolution | `1080x1920` |
+| `reels` | `related_video_id` | YouTube ID of the main video | `""` |
+| `paths` | `videos_reels` | Source folder for reels/shorts clips | `./assets/videos-reels` |
 
 ## Output Format
 
@@ -771,6 +888,6 @@ For issues, questions, or contributions, please refer to the project documentati
 
 ---
 
-**Version**: 1.0.0  
-**Last Updated**: February 8, 2026  
+**Version**: 1.1.0  
+**Last Updated**: April 5, 2026  
 **Platform**: Linux (CUDA required for GPU acceleration)
