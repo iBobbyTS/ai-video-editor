@@ -297,6 +297,82 @@ graph TB
 
 📊 **For detailed component breakdown and performance metrics, see [PIPELINE_DIAGRAM.md](PIPELINE_DIAGRAM.md)**
 
+### Publication Pipeline
+
+Once content is rendered, `run_pipeline.py` distributes it across all platforms automatically.
+The main video and reels each follow their own publication path:
+
+```mermaid
+graph LR
+    %% Rendered assets
+    MP4["🎬 Main Video<br/>(4K H.265 MP4)"]
+    REELS_MP4["📱 Reels Video<br/>(1080x1920 H.265)"]
+    PHOTOS["🖼️ Photos<br/>(from config)"]
+
+    %% ── Main video publication ──
+    subgraph MAIN["  Main Video Publication  "]
+        direction TB
+        YT_UP["[7/7] upload_youtube.py<br/>OAuth 2.0 + thumbnail"]
+        YT["▶️ YouTube<br/>4K Video"]
+        YT_UP --> YT
+    end
+
+    %% ── Reels / Shorts publication ──
+    subgraph REELS["  Reels / Shorts Publication  "]
+        direction TB
+        YT_SHORTS["[R4/8] upload_youtube.py --shorts<br/>YouTube Data API v3"]
+        IG_REEL["[R5/8] upload_instagram.py --video<br/>Resumable Upload Protocol"]
+        FB_REEL["[R6/8] upload_facebook.py --video<br/>Graph API /{page}/videos"]
+        SHORTS["📱 YouTube Shorts"]
+        IG_R["📸 Instagram Reel"]
+        FB_R["📘 Facebook Reel"]
+        YT_SHORTS --> SHORTS
+        IG_REEL --> IG_R
+        FB_REEL --> FB_R
+    end
+
+    %% ── Photo publication ──
+    subgraph PHOTO["  Photo Publication  "]
+        direction TB
+        FB_PHOTO["[R7/8] upload_facebook.py --all<br/>Multi-Photo Post"]
+        IG_PHOTO["[R8/8] upload_instagram.py --photo<br/>Carousel via CDN Relay"]
+        FB_P["📘 Facebook Photos"]
+        IG_P["📸 Instagram Carousel"]
+        FB_PHOTO --> FB_P
+        IG_PHOTO --> IG_P
+    end
+
+    %% Connections
+    MP4 --> MAIN
+    REELS_MP4 --> REELS
+    PHOTOS --> PHOTO
+
+    %% Styling
+    classDef asset fill:#fff9c4,stroke:#f9a825,stroke-width:2px
+    classDef yt fill:#ffcdd2,stroke:#d32f2f,stroke-width:2px
+    classDef ig fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    classDef fb fill:#bbdefb,stroke:#1565c0,stroke-width:2px
+
+    class MP4,REELS_MP4,PHOTOS asset
+    class YT_UP,YT,YT_SHORTS,SHORTS yt
+    class IG_REEL,IG_PHOTO,IG_R,IG_P ig
+    class FB_REEL,FB_PHOTO,FB_R,FB_P fb
+```
+
+**Publication stages in `run_pipeline.py`:**
+
+| Stage | Script | Platform | Content | API / Method |
+|-------|--------|----------|---------|-------------|
+| `[7/7]` | `upload_youtube.py` | YouTube | Main 4K video | YouTube Data API v3 (OAuth 2.0) |
+| `[R4/8]` | `upload_youtube.py --shorts` | YouTube Shorts | Vertical reel | YouTube Data API v3 (OAuth 2.0) |
+| `[R5/8]` | `upload_instagram.py --video` | Instagram | Reel | Meta Graph API — Resumable Upload |
+| `[R6/8]` | `upload_facebook.py --video` | Facebook | Reel | Meta Graph API — `/{page_id}/videos` |
+| `[R7/8]` | `upload_facebook.py --all` | Facebook | Photos | Meta Graph API — Multi-Photo Post |
+| `[R8/8]` | `upload_instagram.py --photo` | Instagram | Carousel | Meta Graph API — CDN Relay |
+
+> All upload stages require valid credentials in their respective JSON files (see [Credentials Setup](#credentials-setup)).
+> Use `--yes` to skip confirmation prompts for fully automated publishing.
+
 ## Scene Classification System
 
 The AI analyzes video content and assigns classifications that determine playback speed:
