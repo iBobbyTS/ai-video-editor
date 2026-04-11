@@ -166,6 +166,10 @@ This pipeline transforms lengthy raw footage (30-60+ minutes) into polished, wat
 - Optional LUT application in Resolve Media Pool
 - YouTube rendering (H.265, 4K, bitrate control)
 - YouTube upload with OAuth 2.0, playlist support, and thumbnails
+- YouTube Shorts / Reels vertical 9:16 pipeline
+- Instagram photo carousel and Reel upload (Meta Graph API)
+- Facebook Page photo post and Reel upload (Meta Graph API)
+- Auto-transcoding HEVC → H.264 for Instagram compatibility
 - Multi-track audio with background music and teaser soundtracks
 - Configurable watermarks with opacity and positioning
 - GPU-accelerated video processing (NVENC)
@@ -223,6 +227,16 @@ graph TB
         SHORTS[📱 YouTube Shorts]
     end
     
+    %% Social Media
+    subgraph SS[" 📣 SOCIAL MEDIA DISTRIBUTION "]
+        IG_REEL[upload_instagram.py --video<br/>Reel via Resumable Upload]
+        IG_PHOTO[upload_instagram.py --photo<br/>Carousel via CDN Relay]
+        FB_REEL[upload_facebook.py --video<br/>Reel via Graph API]
+        FB_PHOTO[upload_facebook.py --all<br/>Multi-Photo Post]
+        IG[📸 Instagram Reel + Carousel]
+        FB[📘 Facebook Reel + Photos]
+    end
+    
     %% Flow
     RAW --> ANALYZE
     ANALYZE --> MODELS
@@ -253,6 +267,16 @@ graph TB
     REELS_RENDER --> REELS_UP
     REELS_UP --> SHORTS
     
+    %% Social media flow
+    REELS_RENDER --> IG_REEL
+    REELS_RENDER --> FB_REEL
+    IG_REEL --> IG
+    IG_PHOTO --> IG
+    FB_REEL --> FB
+    FB_PHOTO --> FB
+    MP4 -.-> IG_PHOTO
+    MP4 -.-> FB_PHOTO
+    
     %% Styling
     classDef stageR fill:#e0f7fa,stroke:#00838f,stroke-width:2px
     classDef stage1 fill:#fff3e0,stroke:#f57c00,stroke-width:2px
@@ -260,6 +284,7 @@ graph TB
     classDef stage3 fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
     classDef stage4 fill:#fce4ec,stroke:#c2185b,stroke-width:2px
     classDef stage5 fill:#ffebee,stroke:#d32f2f,stroke-width:2px
+    classDef stageS fill:#e8eaf6,stroke:#283593,stroke-width:2px
     
     class ANALYZE,MODELS,CLASSIFY,JSON stage1
     class EXTRACT,FFMPEG,CLIPS stage2
@@ -267,6 +292,7 @@ graph TB
     class IMPORT,LUT,RENDER,MP4 stage4
     class UPLOAD,AUTH,YT stage5
     class REELS_EXP,REELS_XML,REELS_RENDER,REELS_UP,SHORTS stageR
+    class IG_REEL,IG_PHOTO,FB_REEL,FB_PHOTO,IG,FB stageS
 ```
 
 📊 **For detailed component breakdown and performance metrics, see [PIPELINE_DIAGRAM.md](PIPELINE_DIAGRAM.md)**
@@ -382,6 +408,9 @@ All Python dependencies are pinned in [requirements.txt](requirements.txt).
 ├── render_youtube.py              # Render 4K MP4 via Resolve API
 ├── render_reels.py                # Render 1080x1920 Shorts MP4 via Resolve
 ├── upload_youtube.py              # Upload to YouTube (main + shorts)
+├── upload_instagram.py            # Upload photos/reels to Instagram
+├── upload_facebook.py             # Upload photos/reels to Facebook Page
+├── instagram_credentials.json     # Meta API credentials (not in git)
 ├── project_config.json            # Project configuration
 ├── assets/
 │   ├── Start-Intro-V3.mov        # Intro video (10-bit)
@@ -431,7 +460,8 @@ This orchestrates all stages automatically:
 - **Stage 4**: Import to DaVinci Resolve + apply LUT (via Resolve API)
 - **Stage 5**: Render 4K MP4 (via Resolve API)
 - **Stage 6**: Upload to YouTube (OAuth 2.0)
-- **Stage R1–R4** *(with `--reels-only`)*: Reels/Shorts export → Resolve → render → upload
+- **Stage 7**: Upload to YouTube (OAuth 2.0)
+- **Stage R1–R8** *(with `--reels-only`)*: Reels/Shorts export → Resolve → render → YouTube Shorts → Instagram Reel → Facebook Reel → Facebook Photos → Instagram Photos
 
 ### Post-Pipeline Steps
 
@@ -479,6 +509,10 @@ python upload_youtube.py --video ~/Videos/my_shorts.mp4 --config project_config.
 | R2 | Resolve API | Create project, import timeline, apply LUT |
 | R3 | `render_reels.py` | Render H.265 NVIDIA @ 15 Mbps (1080x1920) |
 | R4 | `upload_youtube.py --shorts` | Upload as YouTube Shorts with `#shorts` tag |
+| R5 | `upload_instagram.py --video` | Upload as Instagram Reel (auto-transcodes HEVC → H.264) |
+| R6 | `upload_facebook.py --video` | Upload as Facebook Reel on Page |
+| R7 | `upload_facebook.py --all` | Publish project photos to Facebook Page |
+| R8 | `upload_instagram.py --photo` | Publish project photos as Instagram carousel |
 
 ### Manual Stage-by-Stage Execution
 
@@ -572,6 +606,31 @@ python export_resolve.py --config project_config.json \
 --thumbnail PATH          # Custom thumbnail image
 ```
 
+#### upload_instagram.py
+
+```bash
+--photo [PATH]            # Upload photo(s) to Instagram (carousel if multiple)
+                          # No path = all photos from config as carousel
+--video PATH              # Upload video as Instagram Reel (MP4)
+                          # Auto-transcodes HEVC to H.264 if needed
+--all                     # Upload all photos from config paths.photos directory
+--caption TEXT            # Custom caption (default: from project config)
+--config PATH             # Project config file
+--credentials PATH        # Credentials file (default: instagram_credentials.json)
+```
+
+#### upload_facebook.py
+
+```bash
+--photo [PATH]            # Upload photo to Facebook Page
+                          # No path = latest from config; no arg = multi-photo post
+--video PATH              # Upload video as Facebook Reel (MP4)
+--all                     # Upload all photos as multi-photo post
+--caption TEXT            # Custom caption (default: from project config)
+--config PATH             # Project config file
+--credentials PATH        # Credentials file (default: instagram_credentials.json)
+```
+
 ## Configuration
 
 ### project_config.json
@@ -657,6 +716,97 @@ python export_resolve.py --config project_config.json \
 | `reels` | `resolution` | Shorts resolution | `1080x1920` |
 | `reels` | `related_video_id` | YouTube ID of the main video | `""` |
 | `paths` | `videos_reels` | Source folder for reels/shorts clips | `./assets/videos-reels` |
+
+## Credentials Setup
+
+Three credential files are required for social media uploads. All are git-ignored.
+
+### instagram_credentials.json (Manual)
+
+Used by `upload_instagram.py` and `upload_facebook.py`. Must be created manually.
+
+```json
+{
+  "app_id": "YOUR_META_APP_ID",
+  "ig_user_id": "YOUR_INSTAGRAM_BUSINESS_ACCOUNT_ID",
+  "page_id": "YOUR_FACEBOOK_PAGE_ID",
+  "page_name": "YourPageName",
+  "page_access_token": "YOUR_NEVER_EXPIRING_PAGE_ACCESS_TOKEN"
+}
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `app_id` | Yes | Meta Developer App ID (from [Meta Developer Portal](https://developers.facebook.com/)) |
+| `ig_user_id` | Yes | Instagram Business Account ID (linked to FB Page) |
+| `page_id` | Yes | Facebook Page ID (used as CDN relay for uploads) |
+| `page_name` | No | Display name for logging only |
+| `page_access_token` | Yes | Never-expiring Page Access Token |
+
+**How to create:**
+1. Create a Meta Developer App at https://developers.facebook.com/
+2. Add **Instagram Graph API** and **Facebook Login** products
+3. Link your Facebook Page to an Instagram Business Account
+4. Generate a **User Access Token** with permissions: `instagram_basic`, `instagram_content_publish`, `pages_manage_posts`, `pages_read_engagement`, `pages_show_list`
+5. Exchange for a **long-lived token** (60-day): `GET /oauth/access_token?grant_type=fb_exchange_token&client_id={app_id}&client_secret={app_secret}&fb_exchange_token={short_token}`
+6. Exchange for a **permanent Page Access Token**: `GET /{user_id}/accounts?access_token={long_lived_token}` — use the `access_token` from the Page entry
+7. Get IG Business Account ID: `GET /{page_id}?fields=instagram_business_account&access_token={page_token}`
+8. Save all values to `instagram_credentials.json`
+
+> See [INSTAGRAM_SETUP.md](INSTAGRAM_SETUP.md) for detailed step-by-step instructions.
+
+### client_secrets.json (Manual)
+
+Used by `upload_youtube.py` for the initial OAuth flow. Downloaded from Google Cloud Console.
+
+```json
+{
+  "installed": {
+    "client_id": "YOUR_CLIENT_ID.apps.googleusercontent.com",
+    "project_id": "your-project-id",
+    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+    "token_uri": "https://oauth2.googleapis.com/token",
+    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+    "client_secret": "YOUR_CLIENT_SECRET",
+    "redirect_uris": ["http://localhost"]
+  }
+}
+```
+
+**How to create:**
+1. Go to [Google Cloud Console](https://console.cloud.google.com/) → APIs & Services → Credentials
+2. Create an **OAuth 2.0 Client ID** (Application type: **Desktop app**)
+3. Download the JSON file and save as `client_secrets.json` in the project root
+4. Enable the **YouTube Data API v3** in your project
+
+> See [YOUTUBE_UPLOAD_SETUP.md](YOUTUBE_UPLOAD_SETUP.md) for detailed instructions.
+
+### youtube_credentials.json (Auto-generated)
+
+Auto-generated on first `upload_youtube.py` run via OAuth browser flow. Do not create manually.
+
+```json
+{
+  "token": "ya29.a0AfH6SM...",
+  "refresh_token": "1//03xxx...",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "client_id": "YOUR_CLIENT_ID.apps.googleusercontent.com",
+  "client_secret": "YOUR_CLIENT_SECRET",
+  "scopes": ["https://www.googleapis.com/auth/youtube.force-ssl"],
+  "universe_domain": "googleapis.com",
+  "account": "",
+  "expiry": "2026-04-05T18:07:57Z"
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `token` | OAuth access token (auto-refreshed when expired, ~1 hour lifetime) |
+| `refresh_token` | Used to obtain new access tokens without re-authentication |
+| `scopes` | `youtube.force-ssl` — required for Brand Account compatibility |
+| `expiry` | Token expiration timestamp (auto-managed) |
+
+**First-time setup:** Run `python upload_youtube.py --video <file>` — a browser window opens for Google OAuth consent. After granting access, `youtube_credentials.json` is created automatically and tokens auto-refresh on subsequent runs.
 
 ## Output Format
 
@@ -888,6 +1038,6 @@ For issues, questions, or contributions, please refer to the project documentati
 
 ---
 
-**Version**: 1.1.0  
-**Last Updated**: April 5, 2026  
+**Version**: 1.2.0  
+**Last Updated**: April 11, 2026  
 **Platform**: Linux (CUDA required for GPU acceleration)

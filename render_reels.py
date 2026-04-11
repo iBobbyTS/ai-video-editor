@@ -243,8 +243,9 @@ def main():
 
     # Derive output filename from upload title
     if args.output == "reels_output.mp4":
+        project_cfg = config.get("project", {})
         youtube_cfg = config.get("youtube", {})
-        upload_title = youtube_cfg.get("upload_title") or youtube_cfg.get("default_title", "")
+        upload_title = youtube_cfg.get("upload_title") or project_cfg.get("title") or youtube_cfg.get("default_title", "")
         if upload_title:
             args.output = f"{_title_to_filename(upload_title)}_shorts.mp4"
 

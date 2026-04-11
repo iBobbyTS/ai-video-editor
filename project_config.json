@@ -1,5 +1,43 @@
 {
   "mode": "build",
+  "project": {
+    "title": "Alpha Model Aston Martin One-77 Unboxing video",
+    "description": "Building scale model cars with detailed painting and finishing techniques.\n\nYou can follow ModernHackers social media @ https://linktr.ee/modernhackers",
+    "hashtags": [
+      "scalemodel",
+      "carmodel",
+      "modernhackers",
+      "alphamodel",
+      "astonmartin",
+      "modelcar",
+      "scalemodeling",
+      "modelkit",
+      "124scale"
+    ],
+    "tags": [
+      "scale model",
+      "car model",
+      "car modeling",
+      "modernhackers",
+      "alpha model",
+      "painting",
+      "airbrush",
+      "detailing",
+      "building scale model",
+      "car scale models",
+      "realistic model",
+      "build episode",
+      "tamiya",
+      "revell",
+      "hasegawa",
+      "fujimi",
+      "unboxing",
+      "model kit",
+      "finished model",
+      "1:24",
+      "1/24"
+    ]
+  },
   "paths": {
     "video_dir": "/mnt/synology/dokumentumok/!iphone/Alpha Model Aston Martin - Unboxing",
     "input_dir": "./",
@@ -152,32 +190,7 @@
   "youtube": {
     "channel_url": "https://www.youtube.com/@modernhackers",
     "default_title": "Scale Model Car Build / Unbxing videos",
-    "upload_title": "Alpha Model Aston Martin One-77 Unboxing video",
     "altered_content": false,
-    "default_description": "Building scale model cars with detailed painting and finishing techniques.\n\nYou can follow ModernHackers social media @ https://linktr.ee/modernhackers\n\n#scalemodel #carmodel #carmodeling #modernhackers #alfaromeo #alphamodel #tamiya #revell #hasegawa #fujimi #airbrush #painting #detailing",
-    "default_tags": [
-      "scale model",
-      "car model",
-      "car modeling",
-      "modernhackers",
-      "alpha model",
-      "painting",
-      "airbrush",
-      "detailing",
-      "building scale model",
-      "car scale models",
-      "realistic model",
-      "build episode",
-      "tamiya",
-      "revell",
-      "hasegawa",
-      "fujimi",
-      "unboxing",
-      "model kit",
-      "finished model",
-      "1:24",
-      "1/24"
-    ],
     "category_id": "26",
     "default_privacy": "unlisted",
     "made_for_kids": false,
@@ -199,5 +212,11 @@
       "output_dir": "/home/mazsola/Videos"
     },
     "related_video_id": "nv7GerIgQGc"
+  },
+  "instagram": {
+    "account": "@modern.hackers"
+  },
+  "facebook": {
+    "page_name": "ModernHackers"
   }
 }

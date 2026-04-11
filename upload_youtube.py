@@ -515,6 +515,7 @@ def main():
     
     # Load config
     config = load_config(args.config)
+    project_cfg = config.get("project", {})
     youtube_cfg = config.get("youtube", {})
 
     paths_cfg = config.get("paths", {})
@@ -558,12 +559,19 @@ def main():
         print(f"ERROR: Video file not found: {video_path}")
         sys.exit(1)
     
-    # Prepare metadata
-    title = args.title or youtube_cfg.get("upload_title") or youtube_cfg.get("default_title") or video_path.stem
+    # Prepare metadata — project section is the shared source of truth,
+    # youtube section can override per-platform
+    title = (args.title
+             or youtube_cfg.get("upload_title")
+             or project_cfg.get("title")
+             or youtube_cfg.get("default_title")
+             or video_path.stem)
     if args.shorts and "#shorts" not in title.lower():
         title = f"{title} #shorts"
 
-    description = args.description or youtube_cfg.get("default_description", "")
+    description = (args.description
+                   or youtube_cfg.get("default_description")
+                   or project_cfg.get("description", ""))
 
     # Use shorts playlist when uploading Shorts, otherwise default playlist
     if args.playlist:
@@ -576,7 +584,7 @@ def main():
     metadata = {
         "title": title,
         "description": description,
-        "tags": (args.tags.split(",") if args.tags else youtube_cfg.get("default_tags", [])),
+        "tags": (args.tags.split(",") if args.tags else youtube_cfg.get("default_tags") or project_cfg.get("tags", [])),
         "category_id": args.category or youtube_cfg.get("category_id", "22"),
         "privacy_status": args.privacy or youtube_cfg.get("default_privacy", "private"),
         "made_for_kids": youtube_cfg.get("made_for_kids", False),

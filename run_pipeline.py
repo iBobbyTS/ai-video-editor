@@ -378,7 +378,7 @@ def main():
 
 		resolve_cfg = config.get("resolve", {})
 		if resolve_cfg.get("auto_start") and not reels_only:
-			print("\n▶ [4/5] Launch/attach DaVinci Resolve")
+			print("\n▶ [4/7] Launch/attach DaVinci Resolve")
 			resolve = _connect_resolve(retries=3, delay_seconds=1)
 			process = None
 			if not resolve:
@@ -393,7 +393,7 @@ def main():
 				raise RuntimeError("Resolve is not available via scripting API.")
 			print("✔ Resolve connected")
 
-			print("\n▶ [5/5] Import timeline and apply LUT")
+			print("\n▶ [5/7] Import timeline and apply LUT")
 			project_name = resolve_cfg.get("project_name", "AI Pipeline")
 			create_new_project = resolve_cfg.get("create_new_project", True)
 			project = _create_or_load_project(resolve, project_name, create_new=create_new_project)
@@ -420,7 +420,8 @@ def main():
 			# Render final output
 			if resolve_cfg.get("render_youtube_4k", False):
 				youtube_cfg = config.get("youtube", {})
-				upload_title = youtube_cfg.get("upload_title") or youtube_cfg.get("default_title", "")
+				project_cfg = config.get("project", {})
+				upload_title = youtube_cfg.get("upload_title") or project_cfg.get("title") or youtube_cfg.get("default_title", "")
 				if upload_title:
 					import re as _re
 					safe_name = _re.sub(r'[^\w\s-]', '', upload_title).strip()
@@ -434,11 +435,11 @@ def main():
 				print("📌 TIMELINE VALIDATION REQUIRED")
 				print("=" * 72)
 				print("\n✓ Pipeline stages complete:")
-				print("  [1/5] Analysis - DONE")
-				print("  [2/5] Scene Extraction - DONE")
-				print("  [3/5] Timeline Export - DONE")
-				print("  [4/5] Resolve Import - DONE")
-				print("  [5/5] LUT Applied - DONE")
+				print("  [1/7] Analysis - DONE")
+				print("  [2/7] Scene Extraction - DONE")
+				print("  [3/7] Timeline Export - DONE")
+				print("  [4/7] Resolve Import - DONE")
+				print("  [5/7] LUT Applied - DONE")
 				print("\n📺 In DaVinci Resolve:")
 				print("   - Review the timeline with LUT applied")
 				print("   - Verify all clips, transitions, and effects")
@@ -479,7 +480,7 @@ def main():
 				]
 				
 				# Try to run render, but handle API issues gracefully
-				print(f"\n▶ [6/5] Render YouTube 4K MP4")
+				print(f"\n▶ [6/7] Render YouTube 4K MP4")
 				print("-" * 72)
 				print(" ".join(cmd))
 				print("-" * 72)
@@ -531,7 +532,7 @@ def main():
 							"--config",
 							str(base_dir / "project_config.json"),
 						]
-						print(f"\n▶ [7/5] Upload to YouTube")
+						print(f"\n▶ [7/7] Upload to YouTube")
 						print("-" * 72)
 						print(" ".join(upload_cmd))
 						print("-" * 72)
@@ -604,11 +605,11 @@ def main():
 				"--output",
 				str(reels_timeline_path),
 			]
-			run_stage("📱 [R1/4] Export Reels timeline (9:16)", cmd, base_dir)
+			run_stage("📱 [R1/8] Export Reels timeline (9:16)", cmd, base_dir)
 
 			# Import reels timeline into Resolve
 			if resolve_cfg.get("auto_start"):
-				print("\n▶ 📱 [R2/4] Launch/attach Resolve & Import Reels timeline")
+				print("\n▶ 📱 [R2/8] Launch/attach Resolve & Import Reels timeline")
 				resolve = _connect_resolve(retries=3, delay_seconds=1)
 				if not resolve:
 					process = _launch_resolve(
@@ -654,7 +655,8 @@ def main():
 				# Render reels
 				reels_render_cfg = reels_cfg.get("render_settings", {})
 				youtube_cfg = config.get("youtube", {})
-				upload_title = youtube_cfg.get("upload_title") or youtube_cfg.get("default_title", "")
+				project_cfg = config.get("project", {})
+				upload_title = youtube_cfg.get("upload_title") or project_cfg.get("title") or youtube_cfg.get("default_title", "")
 				if upload_title:
 					import re as _re
 					safe_name = _re.sub(r'[^\w\s-]', '', upload_title).strip()
@@ -700,7 +702,7 @@ def main():
 						"--config",
 						str(Path(args.config).resolve()),
 					]
-					print(f"\n▶ 📱 [R3/4] Render Reels (1080x1920)")
+					print(f"\n▶ 📱 [R3/8] Render Reels (1080x1920)")
 					print("-" * 72)
 					print(" ".join(cmd))
 					print("-" * 72)
@@ -754,7 +756,7 @@ def main():
 							if related_video_id:
 								upload_cmd.extend(["--related-video", related_video_id])
 
-							print(f"\n▶ 📱 [R4/4] Upload Shorts to YouTube")
+							print(f"\n▶ 📱 [R4/8] Upload Shorts to YouTube")
 							print("-" * 72)
 							print(" ".join(upload_cmd))
 							print("-" * 72)
@@ -771,6 +773,203 @@ def main():
 					else:
 						print(f"\n⚠️  Rendered file not found: {actual_reels_path}")
 						print("   Upload skipped — check Resolve render output directory")
+
+			# --- Instagram Reel Upload ---
+			ig_creds_file = base_dir / "instagram_credentials.json"
+			if actual_reels_path and actual_reels_path.exists() and ig_creds_file.exists():
+				project_cfg = config.get("project", {})
+				ig_cfg = config.get("instagram", {})
+				ig_caption = ig_cfg.get("default_caption") or project_cfg.get("title", "")
+				ig_hashtags = ig_cfg.get("hashtags") or project_cfg.get("hashtags", [])
+
+				print("\n" + "=" * 72)
+				print("📸 INSTAGRAM REEL UPLOAD")
+				print("=" * 72)
+				print(f"   Video:    {actual_reels_path}")
+				print(f"   Size:     {actual_reels_path.stat().st_size / (1024 * 1024):.1f} MB")
+				if ig_caption:
+					print(f"   Caption:  {ig_caption[:60]}...")
+				print("=" * 72)
+
+				if auto_yes:
+					response = 'y'
+					print("\n✓ Auto-confirmed (--yes): Starting Instagram reel upload...")
+				else:
+					response = ''
+					while True:
+						response = input("\nUpload reel to Instagram? (y/N): ").strip().lower()
+						if response in ('y', 'yes', 'n', 'no', ''):
+							break
+						print("Please enter 'y' or 'n'")
+				if response in ('y', 'yes'):
+					print("✓ Starting Instagram reel upload...")
+					ig_upload_cmd = [
+						python,
+						str(base_dir / "upload_instagram.py"),
+						"--video",
+						str(actual_reels_path),
+						"--config",
+						str(base_dir / "project_config.json"),
+					]
+					print(f"\n▶ 📸 [R5/8] Upload Reel to Instagram")
+					print("-" * 72)
+					print(" ".join(ig_upload_cmd))
+					print("-" * 72)
+					try:
+						ig_result = subprocess.run(ig_upload_cmd, cwd=base_dir)
+						if ig_result.returncode == 0:
+							print(f"✔ Instagram reel upload completed")
+						else:
+							print(f"\n⚠️  Instagram upload issues (exit code {ig_result.returncode})")
+					except Exception as e:
+						print(f"\n⚠️  Instagram upload error: {e}")
+				else:
+					print("✗ Instagram reel upload skipped")
+
+			# --- Facebook Reel Upload ---
+			if actual_reels_path and actual_reels_path.exists() and ig_creds_file.exists():
+				fb_cfg = config.get("facebook", {})
+				project_cfg = config.get("project", {})
+
+				print("\n" + "=" * 72)
+				print("📘 FACEBOOK REEL UPLOAD")
+				print("=" * 72)
+				print(f"   Video:    {actual_reels_path}")
+				print(f"   Size:     {actual_reels_path.stat().st_size / (1024 * 1024):.1f} MB")
+				if fb_cfg.get("page_name"):
+					print(f"   Page:     {fb_cfg['page_name']}")
+				print("=" * 72)
+
+				if auto_yes:
+					response = 'y'
+					print("\n✓ Auto-confirmed (--yes): Starting Facebook reel upload...")
+				else:
+					response = ''
+					while True:
+						response = input("\nUpload reel to Facebook Page? (y/N): ").strip().lower()
+						if response in ('y', 'yes', 'n', 'no', ''):
+							break
+						print("Please enter 'y' or 'n'")
+				if response in ('y', 'yes'):
+					print("✓ Starting Facebook reel upload...")
+					fb_reel_cmd = [
+						python,
+						str(base_dir / "upload_facebook.py"),
+						"--video",
+						str(actual_reels_path),
+						"--config",
+						str(base_dir / "project_config.json"),
+					]
+					print(f"\n▶ 📘 [R6/8] Upload Reel to Facebook")
+					print("-" * 72)
+					print(" ".join(fb_reel_cmd))
+					print("-" * 72)
+					try:
+						fb_reel_result = subprocess.run(fb_reel_cmd, cwd=base_dir)
+						if fb_reel_result.returncode == 0:
+							print(f"✔ Facebook reel upload completed")
+						else:
+							print(f"\n⚠️  Facebook reel upload issues (exit code {fb_reel_result.returncode})")
+					except Exception as e:
+						print(f"\n⚠️  Facebook reel upload error: {e}")
+				else:
+					print("✗ Facebook reel upload skipped")
+
+			# --- Facebook Photo Upload ---
+			if ig_creds_file.exists():
+				fb_cfg = config.get("facebook", {})
+				photos_dir = config.get("paths", {}).get("photos", "")
+
+				if photos_dir and Path(photos_dir).is_dir():
+					print("\n" + "=" * 72)
+					print("📘 FACEBOOK PAGE PHOTO UPLOAD")
+					print("=" * 72)
+					print(f"   Photos:   {photos_dir}")
+					if fb_cfg.get("page_name"):
+						print(f"   Page:     {fb_cfg['page_name']}")
+					print("=" * 72)
+
+					if auto_yes:
+						response = 'y'
+						print("\n✓ Auto-confirmed (--yes): Starting Facebook photo upload...")
+					else:
+						response = ''
+						while True:
+							response = input("\nUpload photos to Facebook Page? (y/N): ").strip().lower()
+							if response in ('y', 'yes', 'n', 'no', ''):
+								break
+							print("Please enter 'y' or 'n'")
+					if response in ('y', 'yes'):
+						print("✓ Starting Facebook photo upload...")
+						fb_upload_cmd = [
+							python,
+							str(base_dir / "upload_facebook.py"),
+							"--all",
+							"--config",
+							str(base_dir / "project_config.json"),
+						]
+						print(f"\n▶ 📘 [R7/8] Upload Photos to Facebook")
+						print("-" * 72)
+						print(" ".join(fb_upload_cmd))
+						print("-" * 72)
+						try:
+							fb_result = subprocess.run(fb_upload_cmd, cwd=base_dir)
+							if fb_result.returncode == 0:
+								print(f"✔ Facebook photo upload completed")
+							else:
+								print(f"\n⚠️  Facebook upload issues (exit code {fb_result.returncode})")
+						except Exception as e:
+							print(f"\n⚠️  Facebook upload error: {e}")
+					else:
+						print("✗ Facebook photo upload skipped")
+
+			# --- Instagram Photo Upload ---
+			if ig_creds_file.exists():
+				ig_cfg = config.get("instagram", {})
+				photos_dir = config.get("paths", {}).get("photos", "")
+
+				if photos_dir and Path(photos_dir).is_dir():
+					print("\n" + "=" * 72)
+					print("📸 INSTAGRAM PHOTO UPLOAD")
+					print("=" * 72)
+					print(f"   Photos:   {photos_dir}")
+					if ig_cfg.get("account"):
+						print(f"   Account:  {ig_cfg['account']}")
+					print("=" * 72)
+
+					if auto_yes:
+						response = 'y'
+						print("\n✓ Auto-confirmed (--yes): Starting Instagram photo upload...")
+					else:
+						response = ''
+						while True:
+							response = input("\nUpload photos to Instagram? (y/N): ").strip().lower()
+							if response in ('y', 'yes', 'n', 'no', ''):
+								break
+							print("Please enter 'y' or 'n'")
+					if response in ('y', 'yes'):
+						print("✓ Starting Instagram photo upload...")
+						ig_photo_cmd = [
+							python,
+							str(base_dir / "upload_instagram.py"),
+							"--photo",
+							"--config",
+							str(base_dir / "project_config.json"),
+						]
+						print(f"\n▶ 📸 [R8/8] Upload Photos to Instagram")
+						print("-" * 72)
+						print(" ".join(ig_photo_cmd))
+						print("-" * 72)
+						try:
+							ig_photo_result = subprocess.run(ig_photo_cmd, cwd=base_dir)
+							if ig_photo_result.returncode == 0:
+								print(f"✔ Instagram photo upload completed")
+							else:
+								print(f"\n⚠️  Instagram photo upload issues (exit code {ig_photo_result.returncode})")
+						except Exception as e:
+							print(f"\n⚠️  Instagram photo upload error: {e}")
+					else:
+						print("✗ Instagram photo upload skipped")
 
 		print("\n✅ Pipeline complete")
 		print("Import all clips to Resolve Media Pool before importing the XML.")
