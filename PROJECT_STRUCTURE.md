@@ -10,6 +10,7 @@ Complete video processing pipeline: AI scene analysis → clip extraction → ti
   - Calls analyze_advanced5.py for video analysis
   - Calls extract_scenes.py for clip extraction
   - Calls export_resolve.py for timeline generation
+  - Dispatches `event_memory` mode to the lightweight event recap pipeline
   - Usage: `python run_pipeline.py --input /path/to/videos --config project_config.json`
 
 ### 2. Analysis Stage
@@ -50,6 +51,15 @@ Complete video processing pipeline: AI scene analysis → clip extraction → ti
 ### 7. Utilities
 - **`apply_lut_resolve.py`** - Applies LUT to clips in DaVinci Resolve
   - Usage: `python apply_lut_resolve.py --config project_config.json`
+
+### 8. Event Memory Pipeline
+- **`event_memory/`** - Deterministic mixed-media recap workflow
+  - Scans videos and photos into `media_index.json`
+  - Segments videos and still images
+  - Merges optional `human_notes.csv`
+  - Scores activity/event recap candidates
+  - Writes `timeline.json`, `review.md`, and optional `event_memory.fcpxml`
+  - Usage: `python run_pipeline.py --mode event_memory --input ./footage --output ./project_output --dry-run --yes`
 
 ## Configuration
 

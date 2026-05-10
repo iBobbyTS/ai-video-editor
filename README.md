@@ -26,13 +26,14 @@ python run_pipeline.py
 
 ### Pipeline Modes
 
-The pipeline supports three modes, set via `"mode"` in `project_config.json` or `--mode` on the command line (CLI overrides config):
+The pipeline supports four modes, set via `"mode"` in `project_config.json` or `--mode` on the command line (CLI overrides config):
 
 | Mode | Audio | Speed | Boring detection | Use case |
 |------|-------|-------|------------------|----------|
 | `build` | Muted → background music | Variable (1x–6x by scene rating) | LLM visual analysis only | Silent build/craft videos — no narration |
 | `unboxing` | **Kept** (narration preserved) | **1.0x always** | Audio silence + video freeze + LLM | Voice-over videos — unboxing, reviews, tutorials |
 | `reels` | Muted → music overlay | 1.0x | N/A (uses existing analysis) | Short-form 9:16 vertical clips |
+| `event_memory` | Kept only in source references / preview trims | 1.0x | Heuristic + human notes | Activity/event recap timelines from real videos and photos |
 
 #### Mode benefits comparison
 
@@ -48,6 +49,38 @@ The pipeline supports three modes, set via `"mode"` in `project_config.json` or 
 | 9:16 vertical crop | — | — | ✅ |
 | Duplicate scene detection | ✅ | ✅ | — |
 | Watermark overlay | ✅ | ✅ | ✅ |
+
+### Event memory mode
+
+`event_memory` is a deterministic recap workflow for real event footage and photos. It does not require CUDA, NVIDIA/NVENC, cloud APIs, or a real vision model in dry-run mode.
+
+```bash
+python run_pipeline.py \
+  --mode event_memory \
+  --input ./footage \
+  --output ./project_output \
+  --dry-run \
+  --yes
+```
+
+Inputs can include `.mp4`, `.mov`, `.m4v`, `.jpg`, `.jpeg`, `.png`, and `.heic` files. Optional `human_notes.csv` can guide selection with these columns:
+
+```csv
+file,start,end,human_note,importance,must_include,avoid_use,event_role,preferred_use
+```
+
+The mode writes inspectable artifacts:
+
+- `media_index.json`
+- `analysis_segments.json`
+- `scored_segments.json`
+- `candidate_events.json`
+- `timeline.json`
+- `review.md`
+- `logs/event_memory.log`
+- `event_memory.fcpxml`
+
+Pass `--render-preview` to attempt a simple FFmpeg `review_preview.mp4`. Preview rendering uses macOS-friendly VideoToolbox encoders when available and falls back to `libx264`.
 
 #### How each mode runs end-to-end
 

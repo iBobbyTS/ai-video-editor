@@ -193,8 +193,10 @@ def main():
 	parser = argparse.ArgumentParser(description="End-to-end AI video pipeline")
 	parser.add_argument("--config", default="project_config.json", help="Project config JSON file")
 	parser.add_argument("--input-dir", default=None, help="Folder with input videos")
+	parser.add_argument("--input", dest="input_dir_alias", default=None, help="Alias for --input-dir")
 	parser.add_argument("--video", default=None, help="Single video file to analyze")
 	parser.add_argument("--output-dir", default=None, help="Folder for analysis JSON outputs")
+	parser.add_argument("--output", dest="output_dir_alias", default=None, help="Alias for --output-dir")
 	parser.add_argument("--clips-dir", default=None, help="Base output directory for clips")
 	parser.add_argument("--timeline", default=None, help="Output FCPXML file")
 	parser.add_argument("--sample-interval", type=int, default=None, help="Frame sample interval (seconds)")
@@ -207,7 +209,11 @@ def main():
 	parser.add_argument("--force-analysis", action="store_true", help="Re-run analysis even if JSON exists")
 	parser.add_argument("--reels-only", action="store_true", help="Skip main pipeline, run only Reels/Shorts stages")
 	parser.add_argument("--yes", "-y", action="store_true", help="Auto-confirm all interactive prompts (render, upload, etc.)")
-	parser.add_argument("--mode", default=None, choices=['build', 'unboxing', 'reels'], help="Pipeline mode: build (default), unboxing (keep audio/speed), reels")
+	parser.add_argument("--dry-run", action="store_true", help="Use mock/dry-run mode where supported")
+	parser.add_argument("--render-preview", action="store_true", help="Render review preview where supported")
+	parser.add_argument("--event-title", default=None, help="Project title for event_memory timelines")
+	parser.add_argument("--target-duration", type=float, default=None, help="Target timeline duration in seconds for event_memory")
+	parser.add_argument("--mode", default=None, choices=['build', 'unboxing', 'reels', 'event_memory'], help="Pipeline mode: build (default), unboxing (keep audio/speed), reels, event_memory")
 	args = parser.parse_args()
 
 	base_dir = Path(__file__).resolve().parent
@@ -222,8 +228,8 @@ def main():
 
 	# video_dir is where videos AND analysis files are located
 	video_dir_cfg = paths_cfg.get("video_dir") or paths_cfg.get("input_dir") or "."
-	input_dir = Path(args.input_dir or video_dir_cfg).resolve()
-	output_dir = Path(args.output_dir or video_dir_cfg).resolve()
+	input_dir = Path(args.input_dir_alias or args.input_dir or video_dir_cfg).resolve()
+	output_dir = Path(args.output_dir_alias or args.output_dir or video_dir_cfg).resolve()
 	clips_dir = Path(args.clips_dir or paths_cfg.get("clips_dir") or "ai_clips").resolve()
 	timeline_path = Path(args.timeline or paths_cfg.get("timeline") or "timeline_davinci_resolve.fcpxml").resolve()
 
@@ -245,6 +251,40 @@ def main():
 	reels_only = args.reels_only
 	auto_yes = args.yes
 	mode = args.mode or config.get('mode', 'build')
+
+	if mode == 'event_memory':
+		from event_memory.pipeline import EventMemoryOptions, run_event_memory_pipeline
+
+		project_cfg = config.get("project", {})
+		event_cfg = config.get("event_memory", {})
+		event_title = args.event_title or event_cfg.get("title") or project_cfg.get("title") or "Event Memory Recap"
+		target_duration = args.target_duration if args.target_duration is not None else event_cfg.get("target_duration_sec")
+		options = EventMemoryOptions(
+			input_dir=input_dir,
+			output_dir=output_dir,
+			dry_run=True if args.dry_run else bool(event_cfg.get("dry_run", True)),
+			yes=args.yes,
+			project_title=event_title,
+			target_duration_sec=target_duration,
+			still_duration_sec=float(event_cfg.get("still_duration_sec", 4.0)),
+			window_sec=float(event_cfg.get("window_sec", 25.0)),
+			overlap_sec=float(event_cfg.get("overlap_sec", 3.0)),
+			sort_by=event_cfg.get("sort_by", "filename"),
+			backend=event_cfg.get("backend", "mock"),
+			render_preview_enabled=args.render_preview or bool(event_cfg.get("render_preview", False)),
+			export_fcpxml=bool(event_cfg.get("export_fcpxml", True)),
+		)
+		print("\n=== Event Memory Pipeline ===")
+		print(f"Input dir:   {options.input_dir}")
+		print(f"Output dir:  {options.output_dir}")
+		print(f"Dry run:     {options.dry_run}")
+		print(f"Preview:     {options.render_preview_enabled}")
+		timeline = run_event_memory_pipeline(options)
+		print("\n✔ event_memory completed")
+		print(f"Timeline:    {options.output_dir / 'timeline.json'}")
+		print(f"Clips:       {len(timeline.clips)}")
+		print(f"Duration:    {timeline.total_duration_sec:.1f}s")
+		return
 	if reels_only:
 		skip_analysis = True
 		skip_extract = True
