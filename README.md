@@ -80,6 +80,8 @@ The mode writes inspectable artifacts:
 - `logs/event_memory.log`
 - `event_memory.fcpxml`
 
+`event_memory.fcpxml` targets FCPXML 1.14 for modern Final Cut Pro imports. Media paths are written as `media-rep` children of each `asset`, not as `src` attributes on `asset`.
+
 Pass `--render-preview` to attempt a simple FFmpeg `review_preview.mp4`. Preview rendering uses macOS-friendly VideoToolbox encoders when available and falls back to `libx264`.
 
 #### How each mode runs end-to-end

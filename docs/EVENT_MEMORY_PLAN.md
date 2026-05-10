@@ -20,7 +20,7 @@ Implemented in this MVP:
 - Score event-memory candidates with human-note boosts and exclusion rules.
 - Write `analysis_segments.json`, `scored_segments.json`, `candidate_events.json`, and `timeline.json`.
 - Optionally render `review_preview.mp4` with FFmpeg when `--render-preview` is passed.
-- Optionally export a simple `event_memory.fcpxml` when timeline data is available.
+- Optionally export a simple FCPXML 1.14 `event_memory.fcpxml` when timeline data is available, using `media-rep` children for asset file references.
 
 Intentionally left for later:
 

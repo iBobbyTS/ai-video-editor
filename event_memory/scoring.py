@@ -37,6 +37,19 @@ def score_segment(segment: AnalysisSegment) -> ScoredSegment:
     score += quality_delta
     reasons.append(f"visual quality {quality_delta:+.1f}")
 
+    recap_delta = (segment.recap_value - 0.5) * 40
+    score += recap_delta
+    reasons.append(f"recap value {recap_delta:+.1f}")
+
+    if segment.summary.strip().lower() == "unknown" or "unknown" in segment.labels:
+        score -= 20
+        reasons.append("unknown content -20")
+
+    motion_score = segment.technical_signals.get("motion_score")
+    if isinstance(motion_score, (int, float)) and segment.duration_sec >= 20 and motion_score < 0.01:
+        score -= 25
+        reasons.append("long low-motion segment -25")
+
     if segment.media_type == "image":
         score += 8
         reasons.append("memory photo +8")
@@ -94,10 +107,48 @@ def select_candidates(scored_segments: list[ScoredSegment], max_candidates: int 
     included = [item for item in scored_segments if not item.excluded]
     must_include = [item for item in included if item.segment.must_include]
     regular = [item for item in included if not item.segment.must_include]
-    regular.sort(key=lambda item: (-item.score, item.segment.sort_order))
 
     selected_by_id = {item.segment.segment_id: item for item in must_include}
-    for item in regular:
+
+    preferred_roles = [
+        "opening",
+        "arrival",
+        "location_context",
+        "group_photo",
+        "portrait_moment",
+        "smiling_reaction",
+        "interaction",
+        "main_activity",
+        "animal_subject",
+        "venue_detail",
+        "environment_broll",
+        "transition",
+        "closing",
+        "uncertain",
+    ]
+    for role in preferred_roles:
+        role_items = [item for item in regular if item.segment.event_role == role]
+        role_items.sort(key=lambda item: (-item.score, item.segment.sort_order))
+        limit = 6 if role in {"main_activity", "animal_subject", "group_photo", "smiling_reaction", "interaction"} else 3
+        for item in role_items[:limit]:
+            selected_by_id.setdefault(item.segment.segment_id, item)
+
+    # Add chronological coverage so long events are not dominated by the first few files.
+    if regular:
+        ordered = sorted(regular, key=lambda item: item.segment.sort_order)
+        buckets = min(10, len(ordered))
+        for bucket in range(buckets):
+            start = round(bucket * len(ordered) / buckets)
+            end = round((bucket + 1) * len(ordered) / buckets)
+            bucket_items = ordered[start:end]
+            if not bucket_items:
+                continue
+            best = max(bucket_items, key=lambda item: (item.score, -item.segment.sort_order))
+            selected_by_id.setdefault(best.segment.segment_id, best)
+
+    remaining = [item for item in regular if item.segment.segment_id not in selected_by_id]
+    remaining.sort(key=lambda item: (-item.score, item.segment.sort_order))
+    for item in remaining:
         if len(selected_by_id) >= max_candidates:
             break
         selected_by_id.setdefault(item.segment.segment_id, item)

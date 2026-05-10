@@ -209,10 +209,14 @@ def main():
 	parser.add_argument("--force-analysis", action="store_true", help="Re-run analysis even if JSON exists")
 	parser.add_argument("--reels-only", action="store_true", help="Skip main pipeline, run only Reels/Shorts stages")
 	parser.add_argument("--yes", "-y", action="store_true", help="Auto-confirm all interactive prompts (render, upload, etc.)")
-	parser.add_argument("--dry-run", action="store_true", help="Use mock/dry-run mode where supported")
+	parser.add_argument("--dry-run", action=argparse.BooleanOptionalAction, default=None, help="Use mock/dry-run mode where supported")
 	parser.add_argument("--render-preview", action="store_true", help="Render review preview where supported")
 	parser.add_argument("--event-title", default=None, help="Project title for event_memory timelines")
 	parser.add_argument("--target-duration", type=float, default=None, help="Target timeline duration in seconds for event_memory")
+	parser.add_argument("--vision-backend", default=None, help="event_memory vision backend: mock, qwen, mlx-vlm, lmstudio")
+	parser.add_argument("--timeline-planner", default=None, help="event_memory timeline planner: heuristic or gpt-5.5")
+	parser.add_argument("--ffmpeg-bin", default=None, help="FFmpeg binary for event_memory preview rendering")
+	parser.add_argument("--max-qwen-segments", type=int, default=None, help="Limit primary Qwen analysis calls for event_memory")
 	parser.add_argument("--mode", default=None, choices=['build', 'unboxing', 'reels', 'event_memory'], help="Pipeline mode: build (default), unboxing (keep audio/speed), reels, event_memory")
 	args = parser.parse_args()
 
@@ -258,11 +262,18 @@ def main():
 		project_cfg = config.get("project", {})
 		event_cfg = config.get("event_memory", {})
 		event_title = args.event_title or event_cfg.get("title") or project_cfg.get("title") or "Event Memory Recap"
-		target_duration = args.target_duration if args.target_duration is not None else event_cfg.get("target_duration_sec")
+		target_duration = args.target_duration if args.target_duration is not None else event_cfg.get("target_duration_sec", 90.0)
+		selected_backend = args.vision_backend or event_cfg.get("vision_backend") or event_cfg.get("backend", "mock")
+		if args.dry_run is not None:
+			event_dry_run = args.dry_run
+		elif "dry_run" in event_cfg:
+			event_dry_run = bool(event_cfg.get("dry_run"))
+		else:
+			event_dry_run = selected_backend == "mock"
 		options = EventMemoryOptions(
 			input_dir=input_dir,
 			output_dir=output_dir,
-			dry_run=True if args.dry_run else bool(event_cfg.get("dry_run", True)),
+			dry_run=event_dry_run,
 			yes=args.yes,
 			project_title=event_title,
 			target_duration_sec=target_duration,
@@ -270,7 +281,17 @@ def main():
 			window_sec=float(event_cfg.get("window_sec", 25.0)),
 			overlap_sec=float(event_cfg.get("overlap_sec", 3.0)),
 			sort_by=event_cfg.get("sort_by", "filename"),
-			backend=event_cfg.get("backend", "mock"),
+			backend=selected_backend,
+			timeline_planner=args.timeline_planner or event_cfg.get("timeline_planner", "heuristic"),
+			ffmpeg_bin=args.ffmpeg_bin or event_cfg.get("ffmpeg_bin", "/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg"),
+			mlx_model_path=event_cfg.get("mlx_model_path", "/Users/ibobby/.lmstudio/models/mlx-community/Qwen3.6-35B-A3B-mxfp4"),
+			lmstudio_base_url=event_cfg.get("lmstudio_base_url", "http://192.168.31.76:1234/v1"),
+			lmstudio_model=event_cfg.get("lmstudio_model", "qwen3.6-35b-a3b"),
+			lmstudio_api_key=event_cfg.get("lmstudio_api_key", "lm-studio"),
+			openai_base_url=event_cfg.get("openai_base_url", ""),
+			openai_api_key=event_cfg.get("openai_api_key", ""),
+			openai_model=event_cfg.get("openai_model", "gpt-5.5"),
+			max_qwen_segments=args.max_qwen_segments if args.max_qwen_segments is not None else event_cfg.get("max_qwen_segments"),
 			render_preview_enabled=args.render_preview or bool(event_cfg.get("render_preview", False)),
 			export_fcpxml=bool(event_cfg.get("export_fcpxml", True)),
 		)
@@ -278,6 +299,9 @@ def main():
 		print(f"Input dir:   {options.input_dir}")
 		print(f"Output dir:  {options.output_dir}")
 		print(f"Dry run:     {options.dry_run}")
+		print(f"Vision:      {options.backend}")
+		print(f"Planner:     {options.timeline_planner}")
+		print(f"Target:      {float(options.target_duration_sec or 90.0):.1f}s")
 		print(f"Preview:     {options.render_preview_enabled}")
 		timeline = run_event_memory_pipeline(options)
 		print("\n✔ event_memory completed")

@@ -65,3 +65,4 @@ client_secrets.json
 youtube_credentials.json
 instagram_credentials.json
 .env
+output

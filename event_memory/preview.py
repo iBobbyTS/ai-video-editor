@@ -58,18 +58,20 @@ def render_preview(
     timeline: Timeline,
     output_path: Path,
     work_dir: Path,
+    ffmpeg_bin: str = "/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg",
     width: int = 1920,
     height: int = 1080,
     fps: int = 30,
     codec: str = "h264_videotoolbox",
 ) -> bool:
     work_dir.mkdir(parents=True, exist_ok=True)
+    ffmpeg = ffmpeg_bin if Path(ffmpeg_bin).exists() else "ffmpeg"
     rendered_parts: list[Path] = []
     for index, clip in enumerate(timeline.clips, 1):
         part_path = work_dir / f"part_{index:04d}.mp4"
         if clip.media_type == "video":
             cmd = [
-                "ffmpeg",
+                ffmpeg,
                 "-y",
                 "-ss",
                 str(clip.source_in or 0),
@@ -87,7 +89,7 @@ def render_preview(
             ]
         else:
             cmd = [
-                "ffmpeg",
+                ffmpeg,
                 "-y",
                 "-loop",
                 "1",
@@ -105,14 +107,14 @@ def render_preview(
             _run(cmd)
         except Exception:
             if codec != "libx264":
-                return render_preview(timeline, output_path, work_dir, width=width, height=height, fps=fps, codec="libx264")
+                return render_preview(timeline, output_path, work_dir, ffmpeg_bin=ffmpeg_bin, width=width, height=height, fps=fps, codec="libx264")
             return False
         rendered_parts.append(part_path)
 
     concat_file = work_dir / "concat.txt"
-    concat_file.write_text("".join(f"file '{path.as_posix()}'\n" for path in rendered_parts), encoding="utf-8")
+    concat_file.write_text("".join(f"file '{path.resolve().as_posix()}'\n" for path in rendered_parts), encoding="utf-8")
     try:
-        _run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(concat_file), "-c", "copy", str(output_path)])
+        _run([ffmpeg, "-y", "-f", "concat", "-safe", "0", "-i", str(concat_file), *_encoder_args(codec), "-pix_fmt", "yuv420p", str(output_path)])
     except Exception:
         return False
     return True
@@ -128,7 +130,9 @@ def write_simple_fcpxml(timeline: Timeline, output_path: Path, fps: int = 30) ->
         duration_frames = max(1, round(clip.timeline_duration * fps))
         duration = f"{duration_frames}/{fps}s"
         resources.append(
-            f'<asset id="{asset_id}" name="{html.escape(path.name)}" src="{html.escape(uri)}" start="0s" duration="{duration}" hasVideo="1" />'
+            f'<asset id="{asset_id}" name="{html.escape(path.name)}" start="0s" duration="{duration}" hasVideo="1">'
+            f'<media-rep kind="original-media" src="{html.escape(uri)}" />'
+            f"</asset>"
         )
         offset_frames = round(sum(c.timeline_duration for c in timeline.clips[: index - 1]) * fps)
         offset = f"{offset_frames}/{fps}s"
@@ -140,7 +144,7 @@ def write_simple_fcpxml(timeline: Timeline, output_path: Path, fps: int = 30) ->
 
     xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE fcpxml>
-<fcpxml version="1.10">
+<fcpxml version="1.14">
   <resources>
     <format id="r0" name="FFVideoFormat1080p30" frameDuration="1/{fps}s" width="1920" height="1080"/>
     {" ".join(resources)}

@@ -88,6 +88,10 @@ class AnalysisSegment:
     must_include: bool = False
     avoid_use: bool = False
     preferred_use: str = ""
+    summary: str = ""
+    analysis_confidence: float = 0.0
+    recap_value: float = 0.5
+    technical_signals: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

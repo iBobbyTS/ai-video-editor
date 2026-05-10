@@ -1,13 +1,15 @@
 import json
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from unittest.mock import patch
 
 from event_memory.media_indexer import index_media
-from event_memory.models import AnalysisSegment, MediaAsset
+from event_memory.models import AnalysisSegment, MediaAsset, Timeline, TimelineClip
 from event_memory.notes import load_human_notes, merge_notes_into_segments
 from event_memory.pipeline import EventMemoryOptions, run_event_memory_pipeline
+from event_memory.preview import render_preview, write_simple_fcpxml
 from event_memory.scoring import score_segment, score_segments, select_candidates
 from event_memory.segmentation import create_analysis_segments, create_video_segments
 from event_memory.timeline import build_timeline
@@ -204,6 +206,152 @@ class EventMemoryTests(unittest.TestCase):
 
             self.assertEqual([clip.media_type for clip in timeline.clips], ["video", "image"])
             self.assertEqual(timeline.clips[1].image_motion_preset, "zoom_in")
+
+    def test_timeline_defaults_to_90_seconds(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            segment = AnalysisSegment(
+                segment_id="video",
+                media_id="media1",
+                source_path=str(root / "activity.mp4"),
+                file_name="activity.mp4",
+                media_type="video",
+                start_sec=0,
+                end_sec=10,
+                duration_sec=10,
+                sort_order=1,
+                event_role="main_activity",
+            )
+
+            timeline = build_timeline([score_segment(segment)])
+
+            self.assertEqual(timeline.target_duration_sec, 90.0)
+
+    def test_timeline_preserve_order_for_model_planner(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            later = AnalysisSegment(
+                segment_id="later",
+                media_id="media1",
+                source_path=str(root / "later.mp4"),
+                file_name="later.mp4",
+                media_type="video",
+                start_sec=0,
+                end_sec=4,
+                duration_sec=4,
+                sort_order=2,
+                event_role="closing",
+            )
+            earlier = AnalysisSegment(
+                segment_id="earlier",
+                media_id="media2",
+                source_path=str(root / "earlier.mp4"),
+                file_name="earlier.mp4",
+                media_type="video",
+                start_sec=0,
+                end_sec=4,
+                duration_sec=4,
+                sort_order=1,
+                event_role="opening",
+            )
+
+            timeline = build_timeline([score_segment(later), score_segment(earlier)], preserve_order=True)
+
+            self.assertEqual([clip.segment_id for clip in timeline.clips], ["later", "earlier"])
+
+    def test_long_video_segments_become_short_recap_shots(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            segment = AnalysisSegment(
+                segment_id="long",
+                media_id="media1",
+                source_path=str(root / "long.mp4"),
+                file_name="long.mp4",
+                media_type="video",
+                start_sec=100,
+                end_sec=130,
+                duration_sec=30,
+                sort_order=1,
+                event_role="group_photo",
+            )
+
+            timeline = build_timeline([score_segment(segment)], target_duration_sec=90)
+
+            self.assertEqual(len(timeline.clips), 1)
+            self.assertLessEqual(timeline.clips[0].timeline_duration, 6.0)
+            self.assertEqual(timeline.clips[0].source_in, 100)
+            self.assertEqual(timeline.clips[0].source_out, 106)
+
+    def test_render_preview_uses_injected_ffmpeg_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "clip.mp4"
+            source.write_bytes(b"fake")
+            segment = AnalysisSegment(
+                segment_id="video",
+                media_id="media1",
+                source_path=str(source),
+                file_name="clip.mp4",
+                media_type="video",
+                start_sec=0,
+                end_sec=2,
+                duration_sec=2,
+                sort_order=1,
+                event_role="main_activity",
+            )
+            timeline = build_timeline([score_segment(segment)])
+            ffmpeg_bin = root / "ffmpeg"
+            ffmpeg_bin.write_text("#!/bin/sh\n")
+            calls = []
+
+            def fake_run(cmd):
+                calls.append(cmd)
+                if "part_0001.mp4" in cmd[-1]:
+                    Path(cmd[-1]).write_bytes(b"fake")
+
+            with patch("event_memory.preview._run", side_effect=fake_run):
+                render_preview(timeline, root / "out.mp4", root / "parts", ffmpeg_bin=str(ffmpeg_bin))
+
+            self.assertEqual(calls[0][0], str(ffmpeg_bin))
+
+    def test_simple_fcpxml_uses_modern_media_rep_assets(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "clip with space.mp4"
+            source.write_bytes(b"fake")
+            output = root / "event_memory.fcpxml"
+            timeline = Timeline(
+                project_title="Trip Recap",
+                mode="event_memory",
+                target_duration_sec=8.0,
+                total_duration_sec=2.0,
+                clips=[
+                    TimelineClip(
+                        clip_id="clip_1",
+                        source_path=str(source),
+                        media_type="video",
+                        source_in=1.0,
+                        source_out=3.0,
+                        timeline_duration=2.0,
+                        event_role="main_activity",
+                        score=0.8,
+                    )
+                ],
+            )
+
+            write_simple_fcpxml(timeline, output)
+
+            text = output.read_text(encoding="utf-8")
+            self.assertIn('<fcpxml version="1.14">', text)
+            self.assertNotIn(" src=", text.split("<asset", 1)[1].split(">", 1)[0])
+            root_element = ET.fromstring(text)
+            asset = root_element.find("./resources/asset")
+            self.assertIsNotNone(asset)
+            self.assertNotIn("src", asset.attrib)
+            media_rep = asset.find("media-rep")
+            self.assertIsNotNone(media_rep)
+            self.assertEqual(media_rep.attrib["kind"], "original-media")
+            self.assertIn("clip%20with%20space.mp4", media_rep.attrib["src"])
 
     def test_dry_run_mock_pipeline_completes_without_model_calls(self):
         with tempfile.TemporaryDirectory() as directory:
